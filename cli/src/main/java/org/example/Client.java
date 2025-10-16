@@ -13,7 +13,6 @@ public class Client {
     private Map<String, ServerDetails> servers; // [servers]: Map of all server ids and their connection info
     private String leaderId; // leader: Current leader id
     private final StubManager stubManager;
-    //    private final HashMap<String, MessageServiceOuterClass.ClientReply> history; // [history]: Map of old requests sent and replies received - #TODO Create a record for each history item
     private final ExecutorService networkExecutor;
 
     public Client(String clientId) {
