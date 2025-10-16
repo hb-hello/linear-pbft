@@ -7,7 +7,7 @@ option java_package = "org.example";
 service MessageService {
 
     // for client
-    rpc Request (ClientRequest) returns (ClientReply) {};
+    rpc Request (ClientRequest) returns (ClientReply) {}; // analogous to the invoke operation in PBFT
 
     // for cli
     rpc SetActiveFlag(ActiveFlag) returns (Acknowledgement);
