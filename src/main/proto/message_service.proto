@@ -1,0 +1,61 @@
+syntax = "proto3";
+
+import "google/protobuf/empty.proto";
+
+option java_package = "org.example";
+
+service MessageService {
+
+    // for client
+    rpc Request (ClientRequest) returns (ClientReply) {};
+
+    // for cli
+    rpc SetActiveFlag(ActiveFlag) returns (Acknowledgement);
+    rpc GetLog(google.protobuf.Empty) returns (CLIResponse) {};
+    rpc GetDB(google.protobuf.Empty) returns (CLIResponse) {};
+    rpc GetStatus(SequenceNumber) returns (CLIResponse) {};
+    rpc GetNewViews(google.protobuf.Empty) returns (CLIResponse) {};
+}
+
+
+
+// CLI to server request
+
+message ActiveFlag {
+    bool active_flag = 1;
+}
+
+message Acknowledgement {
+    bool status = 1;
+}
+
+message SequenceNumber {
+    int64 sequence_number = 1;
+}
+
+message CLIResponse {
+    string cli_response = 1;
+}
+
+// Client to server request
+
+message Transaction {
+  string sender = 1;
+  string receiver = 2;
+  double amount = 3;
+}
+
+message ClientRequest {
+  Transaction transaction = 1;
+  int64 timestamp = 2;
+  string client_id = 3;
+}
+
+// Server to client reply
+
+message ClientReply {
+  string sender_id = 1;
+  int64 timestamp = 2;
+  string client_id = 3;
+  bool result = 4;
+}
