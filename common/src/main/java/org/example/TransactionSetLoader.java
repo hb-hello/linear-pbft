@@ -64,7 +64,6 @@ public class TransactionSetLoader {
 
                     // Check if this is a leader failure event
                     if (LEADER_FAILURE_MARKER.equals(transactionStr)) {
-                        transactionSet.addTransactionEvent(new LeaderFailure());
                     } else {
                         // Parse and add actual transaction
                         Transaction transaction = parseTransaction(transactionStr);

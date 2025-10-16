@@ -51,17 +51,9 @@ public record TransactionSet(int setNumber, List<TransactionEvent> transactionEv
         Map<String, List<Transaction>> currentPhase = new HashMap<>();
 
         for (TransactionEvent event : transactionEvents) {
-            if (event instanceof LeaderFailure) {
-                // End current phase and start a new one
-                if (!currentPhase.isEmpty()) {
-                    phases.add(currentPhase);
-                    currentPhase = new HashMap<>();
-                }
-                // Note: We don't add the LeaderFailure itself to the phase structure
-                // It acts as a delimiter between phases
-            } else if (event instanceof Transaction) {
+            if (event instanceof Transaction) {
                 Transaction tx = (Transaction) event;
-                String sender = tx.getSender();
+                String sender = tx.sender();
 
                 // Add transaction to current phase, grouped by sender
                 currentPhase.computeIfAbsent(sender, k -> new ArrayList<>()).add(tx);

@@ -10,7 +10,6 @@ import java.util.List;
 public class ServerManager {
 
     private static final Logger logger = LogManager.getLogger(ServerManager.class);
-    private static final List<Process> processes = new ArrayList<>();
     private static final StubManager stubManager = new StubManager();
 
     public static void setServerNodeActiveFlag(String serverId, boolean activeFlag) {

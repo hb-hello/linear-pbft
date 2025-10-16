@@ -33,14 +33,14 @@ public final class SenderDispatcher implements AutoCloseable {
     }
 
     public void submit(TransactionEvent event) {
-        String sender = (event instanceof Transaction tx) ? tx.getSender() : LF_SENDER;
+        String sender = (event instanceof Transaction tx) ? tx.sender() : LF_SENDER;
         ExecutorService ex = executors.get(sender);
         if (ex == null) throw new IllegalStateException("No executor for sender " + sender);
         submitted.incrementAndGet();
         ex.execute(() -> {
             try {
                 if (event instanceof Transaction tx) {
-                    clients.get(tx.getSender()).processTransaction(tx.toProtoTransaction());
+                    clients.get(tx.sender()).processTransaction(tx.toProtoTransaction());
                 }
             } finally {
                 completed.incrementAndGet();

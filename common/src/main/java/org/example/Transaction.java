@@ -1,22 +1,11 @@
 package org.example;
 
-public class Transaction implements TransactionEvent {
-    private final String sender;
-    private final String receiver;
-    private final double amount;
-
-    public Transaction(String sender, String receiver, double amount) {
-        this.sender = sender;
-        this.receiver = receiver;
-        this.amount = amount;
-    }
-
-    public String getSender() { return sender; }
-    public String getReceiver() { return receiver; }
-    public double getAmount() { return amount; }
+public record Transaction(String sender, String receiver, double amount) implements TransactionEvent {
 
     @Override
-    public String getEventType() { return "TRANSACTION"; }
+    public String getEventType() {
+        return "TRANSACTION";
+    }
 
     @Override
     public String toString() {

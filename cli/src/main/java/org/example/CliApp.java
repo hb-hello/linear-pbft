@@ -7,9 +7,7 @@ import static org.example.ServerManager.*;
 
 public final class CliApp {
 
-    private final static StubManager stubManager = new StubManager();
-
-    public static void main(String[] args) throws Exception {
+    public static void main(String[] args) {
 
         Config.initialize();
 
