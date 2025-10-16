@@ -32,10 +32,6 @@ public class Client {
         }
     }
 
-    public String getLeaderId() {
-        return leaderId;
-    }
-
     /**
      * Generates a ClientRequest proto message.
      *
@@ -80,8 +76,6 @@ public class Client {
                     this.leaderId = leaderReply.getSenderId(); // update only on success
                     logger.info("Client {}: success via leader {}", clientId, leaderId);
                     break;
-                } else {
-//                logger.info("Client {}: leader {} attempt failed; falling back to broadcast", clientId, leaderId);
                 }
             }
 
@@ -207,7 +201,7 @@ public class Client {
         }
 
         @Override
-        public MessageServiceOuterClass.ClientReply call() throws Exception {
+        public MessageServiceOuterClass.ClientReply call() {
             try {
 //                logger.info("Client {}: Broadcasting request ({}, {}, {}) to server {}.", clientId, request.getTransaction().getSender(), request.getTransaction().getReceiver(), request.getTransaction().getAmount(), serverId);
                 return sendClientRequestWithTimeout(request, serverId);
