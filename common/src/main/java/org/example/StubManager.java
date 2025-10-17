@@ -15,4 +15,8 @@ public class StubManager {
     public MessageServiceGrpc.MessageServiceBlockingStub getBlockingStub(String serverId) {
         return MessageServiceGrpc.newBlockingStub(channelManager.getChannel(serverId));
     }
+
+    public void shutdown() {
+        channelManager.shutdownChannels();
+    }
 }

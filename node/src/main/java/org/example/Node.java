@@ -1,17 +1,101 @@
 package org.example;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+
 public class Node {
 
-    public static void main(String[] args) {
-        //TIP Press <shortcut actionId="ShowIntentionActions"/> with your caret at the highlighted text
-        // to see how IntelliJ IDEA suggests fixing it.
-        System.out.printf("Hello and welcome!");
+    private static final Logger logger = LoggerFactory.getLogger(Node.class);
 
-        for (int i = 1; i <= 5; i++) {
-            //TIP Press <shortcut actionId="Debug"/> to start debugging your code. We have set one <icon src="AllIcons.Debugger.Db_set_breakpoint"/> breakpoint
-            // for you, but you can always add more by pressing <shortcut actionId="ToggleLineBreakpoint"/>.
-            System.out.println("i = " + i);
+    private final int MAJORITY_COUNT = 2;
+    private final int OTHER_SERVER_COUNT = 4;
+    private final long REQUEST_TIMEOUT_MILLIS = 1000;
+
+    private final String nodeId;
+
+    private final CommunicationLogger commLogger;
+
+    private final MessageSender sender;
+    private final MessageReceiver receiver;
+
+    private final ExecutorService listenerExecutor;
+    private final ExecutorManager executorManager;
+
+    public Node(String nodeId) {
+        this.nodeId = nodeId;
+        this.commLogger = new CommunicationLogger();
+
+        this.sender = new MessageSender(nodeId, commLogger);
+        this.receiver = new MessageReceiver(nodeId, this, commLogger);
+
+        this.listenerExecutor = java.util.concurrent.Executors.newSingleThreadExecutor();
+        this.executorManager = new ExecutorManager(OTHER_SERVER_COUNT);
+    }
+
+    public void setActive(boolean active) {
+        sender.setActive(active);
+        receiver.setActive(active);
+    }
+
+    public void start() {
+        Future<?> listenerFuture = listenerExecutor.submit(receiver::startListening);
+
+        // Block main thread
+        try {
+            listenerFuture.get(); // Blocks until listener stops
+        } catch (InterruptedException e) {
+            logger.info("Main thread interrupted - initiating shutdown");
+            Thread.currentThread().interrupt();
+        } catch (ExecutionException e) {
+            logger.error("Listener thread failed: {}", e.getCause().getMessage(), e);
+            throw new RuntimeException("Listener failed", e.getCause());
         }
+    }
+
+    public void shutdown() {
+        logger.info("Shutting down node {}", nodeId);
+        receiver.shutdown();
+        sender.shutdown();
+        executorManager.shutdown();
+
+        // Shutdown listener executor
+        listenerExecutor.shutdown();
+        try {
+            if (!listenerExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+                listenerExecutor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            listenerExecutor.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
+
+        logger.info("Node {} shutdown complete", nodeId);
+    }
+
+    public static void main(String[] args) {
+
+        if (args.length != 1) {
+            System.err.println("Usage: java Node <nodeId>");
+            System.exit(1);
+        }
+
+        Config.initialize();
+
+        String nodeId = args[0];
+        Node node = new Node(nodeId);
+
+        // Register shutdown hook BEFORE starting
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            logger.info("Shutdown hook triggered");
+            node.shutdown();
+        }, nodeId + "-shutdown-hook"));
+
+        node.start();
     }
 
 }
