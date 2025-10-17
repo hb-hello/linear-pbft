@@ -12,8 +12,8 @@ public class Node {
 
     private static final Logger logger = LoggerFactory.getLogger(Node.class);
 
-    private final int MAJORITY_COUNT = 2;
-    private final int OTHER_SERVER_COUNT = 4;
+    private final int MAJORITY_COUNT = 4;
+    private final int OTHER_SERVER_COUNT = 6;
     private final long REQUEST_TIMEOUT_MILLIS = 1000;
 
     private final String nodeId;

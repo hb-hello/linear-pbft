@@ -17,6 +17,9 @@ public class Config {
     private static Map<String, ServerDetails> servers;
     private static Map<String, Double> clientBalances;
     private static String transactionSetsPath;
+    private static String privateKeyDir;
+    private static String publicKeyPath;
+
     private static long clientTimeoutMillis;
     private static int maxRetries;
     private static boolean initialized = false;
@@ -50,6 +53,16 @@ public class Config {
         transactionSetsPath = props.getProperty(
                 "transactions.sets.path",
                 "src/main/resources/transactionSets.csv"
+        );
+
+        privateKeyDir = props.getProperty(
+                "private.key.dir",
+                "keys/private/"
+        );
+
+        publicKeyPath = props.getProperty(
+                "public.key.path",
+                "keys/manifest.json"
         );
 
         clientTimeoutMillis = Long.parseLong(props.getProperty(
