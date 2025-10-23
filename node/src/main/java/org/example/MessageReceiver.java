@@ -2,6 +2,7 @@ package org.example;
 
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
+import org.example.crypto.MessageAuthenticator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -18,11 +19,11 @@ public class MessageReceiver {
 
     public MessageReceiver(String nodeId,
                            Node node,
-                           CommunicationLogger commLogger) {
+                           CommunicationLogger commLogger, MessageAuthenticator auth) {
         this.nodeId = nodeId;
         this.interceptor = new ServerActivityInterceptor();
 
-        MessageService messageService = new MessageService(node, commLogger);
+        MessageService messageService = new MessageService(node, commLogger, auth);
         this.grpcServer = ServerBuilder
                 .forPort(Config.getServerPort(nodeId))
                 .addService(messageService)

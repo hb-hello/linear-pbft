@@ -4,6 +4,7 @@ import com.google.protobuf.Empty;
 import io.grpc.stub.StreamObserver;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.example.crypto.MessageAuthenticator;
 
 //import static org.example.CLILogging.formatNewViews;
 import static org.example.CLILogging.mapStatus;
@@ -13,16 +14,18 @@ public class MessageService extends MessageServiceGrpc.MessageServiceImplBase {
     private static final Logger logger = LogManager.getLogger(MessageService.class);
     private final Node node;
     private final CommunicationLogger communicationLogger;
+    private final MessageAuthenticator auth;
 
-    public MessageService(Node node, CommunicationLogger communicationLogger) {
+    public MessageService(Node node, CommunicationLogger communicationLogger, MessageAuthenticator auth) {
         this.node = node;
         this.communicationLogger = communicationLogger;
+        this.auth = auth;
     }
 
     // Output of the RPC executed on the server is added to the StreamObserver passed
 
     @Override
-    public void request(MessageServiceOuterClass.ClientRequest request, StreamObserver<MessageServiceOuterClass.ClientReply> responseObserver) {
+    public void request(MessageServiceOuterClass.ClientRequest request, StreamObserver<Empty> responseObserver) {
         communicationLogger.add(request);
         logger.info("MESSAGE: <REQUEST, ({}, {}, {}), {}, {}> received from client {}",
                 request.getTransaction().getSender(),
@@ -33,6 +36,11 @@ public class MessageService extends MessageServiceGrpc.MessageServiceImplBase {
                 request.getClientId()
         );
 
+        if (!auth.verify(request)) {
+            logger.warn("Invalid signature for client request from client {}", request.getClientId());
+            return;
+        }
+        logger.info("Signature verified for client request from client {}", request.getClientId());
         // Handle the client request asynchronously
 //        node.handleClientRequest(request, responseObserver);
     }
