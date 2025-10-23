@@ -23,10 +23,10 @@ public class MessageReceiver {
         this.nodeId = nodeId;
         this.interceptor = new ServerActivityInterceptor();
 
-        MessageService messageService = new MessageService(node, commLogger, auth);
+        NodeMessageService nodeMessageService = new NodeMessageService(node, commLogger, auth);
         this.grpcServer = ServerBuilder
                 .forPort(Config.getServerPort(nodeId))
-                .addService(messageService)
+                .addService(nodeMessageService)
                 .intercept(interceptor)
                 .build();
     }
