@@ -9,15 +9,15 @@ import org.example.crypto.MessageAuthenticator;
 //import static org.example.CLILogging.formatNewViews;
 
 
-public class NodeMessageService extends MessageServiceGrpc.MessageServiceImplBase {
+public class ServerMessageService extends MessageServiceGrpc.MessageServiceImplBase {
 
-    private static final Logger logger = LogManager.getLogger(NodeMessageService.class);
-    private final Node node;
+    private static final Logger logger = LogManager.getLogger(ServerMessageService.class);
+    private final ServerNode serverNode;
     private final CommunicationLogger communicationLogger;
     private final MessageAuthenticator auth;
 
-    public NodeMessageService(Node node, CommunicationLogger communicationLogger, MessageAuthenticator auth) {
-        this.node = node;
+    public ServerMessageService(ServerNode serverNode, CommunicationLogger communicationLogger, MessageAuthenticator auth) {
+        this.serverNode = serverNode;
         this.communicationLogger = communicationLogger;
         this.auth = auth;
     }
@@ -47,7 +47,7 @@ public class NodeMessageService extends MessageServiceGrpc.MessageServiceImplBas
 
     @Override
     public void setActiveFlag(MessageServiceOuterClass.ActiveFlag request, StreamObserver<MessageServiceOuterClass.Acknowledgement> responseObserver) {
-        node.setActive(request.getActiveFlag());
+        serverNode.setActive(request.getActiveFlag());
         MessageServiceOuterClass.Acknowledgement ack = MessageServiceOuterClass.Acknowledgement.newBuilder().setStatus(true).build();
         responseObserver.onNext(ack);
         responseObserver.onCompleted();

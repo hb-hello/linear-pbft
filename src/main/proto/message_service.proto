@@ -6,7 +6,7 @@ option java_package = "org.example";
 
 service MessageService {
 
-    // for client
+    // for clientNode
     rpc Request (ClientRequest) returns (google.protobuf.Empty) {}; // analogous to the invoke operation in PBFT
     rpc Reply (ClientReply) returns (google.protobuf.Empty) {};
 
@@ -54,7 +54,7 @@ message ClientRequest {
   bytes signature = 5;
 }
 
-// Server to client reply
+// Server to clientNode reply
 
 message ClientReply {
   string sender_id = 1;

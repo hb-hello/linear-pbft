@@ -10,7 +10,7 @@ public final class SenderDispatcher implements AutoCloseable {
     public static final String LF_SENDER = "LF";
 
     private final Map<String, ExecutorService> executors = new ConcurrentHashMap<>();
-    private final Map<String, Client> clients = new ConcurrentHashMap<>();
+    private final Map<String, ClientNode> clients = new ConcurrentHashMap<>();
     private final AtomicLong submitted = new AtomicLong();
     private final AtomicLong completed = new AtomicLong();
 
@@ -18,7 +18,7 @@ public final class SenderDispatcher implements AutoCloseable {
         for (char c = 'A'; c <= 'J'; c++) {
             String id = String.valueOf(c);
             executors.put(id, newSingle("sender-" + id));
-            clients.put(id, new Client(id));
+            clients.put(id, new ClientNode(id));
         }
         executors.put(LF_SENDER, newSingle("sender-LF"));
     }

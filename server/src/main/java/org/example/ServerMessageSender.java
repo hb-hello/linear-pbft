@@ -6,12 +6,12 @@ import org.example.crypto.MessageAuthenticator;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 
-public class NodeMessageSender extends MessageSender {
+public class ServerMessageSender extends MessageSender {
 
-    private static final Logger logger = LogManager.getLogger(NodeMessageSender.class);
+    private static final Logger logger = LogManager.getLogger(ServerMessageSender.class);
     private final AtomicBoolean active;
 
-    public NodeMessageSender(String nodeId, CommunicationLogger commLogger, MessageAuthenticator auth) {
+    public ServerMessageSender(String nodeId, CommunicationLogger commLogger, MessageAuthenticator auth) {
         super(nodeId, commLogger, auth);
         this.active = new AtomicBoolean(true);
     }

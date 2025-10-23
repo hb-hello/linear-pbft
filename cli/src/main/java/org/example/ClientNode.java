@@ -7,8 +7,8 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.*;
 
-public class Client {
-    private static final Logger logger = LogManager.getLogger(Client.class);
+public class ClientNode {
+    private static final Logger logger = LogManager.getLogger(ClientNode.class);
 
     private final String clientId; // c: self client_id
     private Map<String, ServerDetails> servers; // [servers]: Map of all server ids and their connection info
@@ -16,7 +16,7 @@ public class Client {
     private final StubManager stubManager;
     private final ExecutorService networkExecutor;
 
-    public Client(String clientId) {
+    public ClientNode(String clientId) {
         this.clientId = clientId;
         this.servers = new HashMap<>();
         this.leaderId = "n1";

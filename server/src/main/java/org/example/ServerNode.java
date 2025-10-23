@@ -9,9 +9,9 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
-public class Node {
+public class ServerNode {
 
-    private static final Logger logger = LoggerFactory.getLogger(Node.class);
+    private static final Logger logger = LoggerFactory.getLogger(ServerNode.class);
 
     private final int MAJORITY_COUNT = 4;
     private final int OTHER_SERVER_COUNT = 6;
@@ -22,19 +22,19 @@ public class Node {
     private final CommunicationLogger commLogger;
 
     private final MessageAuthenticator auth;
-    private final NodeMessageSender sender;
+    private final ServerMessageSender sender;
     private final MessageReceiver receiver;
 
     private final ExecutorService listenerExecutor;
     private final ExecutorManager executorManager;
 
-    public Node(String nodeId) {
+    public ServerNode(String nodeId) {
         this.nodeId = nodeId;
         this.commLogger = new CommunicationLogger();
 
         this.auth = new MessageAuthenticator(nodeId);
-        this.sender = new NodeMessageSender(nodeId, commLogger, auth);
-        this.receiver = new NodeMessageReceiver(this, commLogger, auth);
+        this.sender = new ServerMessageSender(nodeId, commLogger, auth);
+        this.receiver = new ServerMessageReceiver(this, commLogger, auth);
 
         this.listenerExecutor = java.util.concurrent.Executors.newSingleThreadExecutor();
         this.executorManager = new ExecutorManager(OTHER_SERVER_COUNT);
@@ -94,15 +94,15 @@ public class Node {
         Config.initialize();
 
         String nodeId = args[0];
-        Node node = new Node(nodeId);
+        ServerNode serverNode = new ServerNode(nodeId);
 
         // Register shutdown hook BEFORE starting
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             logger.info("Shutdown hook triggered");
-            node.shutdown();
+            serverNode.shutdown();
         }, nodeId + "-shutdown-hook"));
 
-        node.start();
+        serverNode.start();
     }
 
 }
