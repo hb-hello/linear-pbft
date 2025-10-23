@@ -212,6 +212,16 @@ public class Config {
         return transactionSetsPath;
     }
 
+    public static String getPrivateKeyDir() {
+        ensureInitialized();
+        return privateKeyDir;
+    }
+
+    public static String getPublicKeyPath() {
+        ensureInitialized();
+        return publicKeyPath;
+    }
+
     public static int getMaxRetries() {
         ensureInitialized();
         return maxRetries;
