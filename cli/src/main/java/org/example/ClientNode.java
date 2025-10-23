@@ -2,37 +2,15 @@ package org.example;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.example.config.Config;
-import org.example.messaging.StubManager;
-import org.example.serialization.ServerDetails;
+import org.example.messaging.ClientMessageReceiver;
 
-import java.util.HashMap;
-import java.util.Map;
-import java.util.concurrent.*;
-
-public class ClientNode {
+public class ClientNode extends Node {
     private static final Logger logger = LogManager.getLogger(ClientNode.class);
 
-    private final String clientId; // c: self client_id
-    private Map<String, ServerDetails> servers; // [servers]: Map of all server ids and their connection info
-    private String leaderId; // leader: Current leader id
-    private final StubManager stubManager;
-    private final ExecutorService networkExecutor;
-
-    public ClientNode(String clientId) {
-        this.clientId = clientId;
-        this.servers = new HashMap<>();
-        this.leaderId = "n1";
-
-
-        try {
-            this.servers = Config.getServers();
-            this.stubManager = new StubManager();
-            this.networkExecutor = Executors.newCachedThreadPool(); // Thread pool for handling network operations
-        } catch (Exception e) {
-//            logger.error("Client {}: Failed to load server details from path defined in config.properties : {}", clientId, e.getMessage());
-            throw new RuntimeException(e);
-        }
+    public ClientNode(String nodeId) {
+        super(nodeId);
+//        this.sender = new ClientMessageSender(nodeId, commLogger, auth);
+        this.receiver = new ClientMessageReceiver(this, auth);
     }
 
     /**

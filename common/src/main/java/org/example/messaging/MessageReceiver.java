@@ -33,8 +33,7 @@ public class MessageReceiver {
 
     // Overloaded constructor without interceptor parameter
     protected MessageReceiver(String nodeId,
-                           MessageServiceGrpc.MessageServiceImplBase service,
-                           CommunicationLogger commLogger, MessageAuthenticator auth) {
+                           MessageServiceGrpc.MessageServiceImplBase service) {
         this.nodeId = nodeId;
         this.interceptor = null;
 
