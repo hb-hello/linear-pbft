@@ -1,5 +1,6 @@
 package org.example;
 
+import org.example.crypto.MessageAuthenticator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -20,7 +21,8 @@ public class Node {
 
     private final CommunicationLogger commLogger;
 
-    private final MessageSender sender;
+    private final MessageAuthenticator auth;
+    private final NodeMessageSender sender;
     private final MessageReceiver receiver;
 
     private final ExecutorService listenerExecutor;
@@ -30,8 +32,9 @@ public class Node {
         this.nodeId = nodeId;
         this.commLogger = new CommunicationLogger();
 
-        this.sender = new MessageSender(nodeId, commLogger);
-        this.receiver = new MessageReceiver(nodeId, this, commLogger);
+        this.auth = new MessageAuthenticator(nodeId);
+        this.sender = new NodeMessageSender(nodeId, commLogger, auth);
+        this.receiver = new MessageReceiver(nodeId, this, commLogger, auth);
 
         this.listenerExecutor = java.util.concurrent.Executors.newSingleThreadExecutor();
         this.executorManager = new ExecutorManager(OTHER_SERVER_COUNT);
