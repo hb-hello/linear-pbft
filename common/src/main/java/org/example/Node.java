@@ -2,6 +2,7 @@ package org.example;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.example.consensus.ConsensusMessageTracker;
 import org.example.crypto.MessageAuthenticator;
 import org.example.messaging.CommunicationLogger;
 import org.example.messaging.MessageReceiver;
@@ -24,12 +25,15 @@ public class Node {
 
     protected final ExecutorManager executorManager;
 
+    protected final ConsensusMessageTracker<String> messageTracker;
+
     protected Node(String nodeId) {
         this.nodeId = nodeId;
         this.commLogger = new CommunicationLogger();
         this.auth = new MessageAuthenticator(nodeId);
 
         this.executorManager = new ExecutorManager(10);
+        this.messageTracker = new ConsensusMessageTracker();
     }
 
     public String getNodeId() {

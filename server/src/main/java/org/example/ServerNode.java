@@ -22,8 +22,7 @@ public class ServerNode extends Node {
     private final int OTHER_SERVER_COUNT = 6;
     private final long REQUEST_TIMEOUT_MILLIS = 1000;
 
-    private final ServerMessageSender sender;
-    private final ServerMessageReceiver receiver;
+    private boolean isPrimary;
 
     public ServerNode(String nodeId) {
         super(nodeId);
