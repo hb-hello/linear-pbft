@@ -25,43 +25,15 @@ public class ServerNode extends Node {
     private final ServerMessageSender sender;
     private final ServerMessageReceiver receiver;
 
-    private final ExecutorService listenerExecutor;
-
     public ServerNode(String nodeId) {
         super(nodeId);
         this.sender = new ServerMessageSender(nodeId, commLogger, auth);
         this.receiver = new ServerMessageReceiver(this, commLogger, auth);
-
-        this.listenerExecutor = java.util.concurrent.Executors.newSingleThreadExecutor();
     }
 
     public void setActive(boolean active) {
         sender.setActive(active);
         receiver.setActive(active);
-    }
-
-    public void start() {
-        Future<?> listenerFuture = executorManager.submitListeningTask(receiver::startListening);
-
-        // Block main thread
-        try {
-            listenerFuture.get(); // Blocks until listener stops
-        } catch (InterruptedException e) {
-            logger.info("Main thread interrupted - initiating shutdown");
-            Thread.currentThread().interrupt();
-        } catch (ExecutionException e) {
-            logger.error("Listener thread failed: {}", e.getCause().getMessage(), e);
-            throw new RuntimeException("Listener failed", e.getCause());
-        }
-    }
-
-    public void shutdown() {
-        logger.info("Shutting down node {}", nodeId);
-        receiver.shutdown();
-        sender.shutdown();
-        executorManager.shutdown();
-
-        logger.info("Node {} shutdown complete", nodeId);
     }
 
     public static void main(String[] args) {

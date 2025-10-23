@@ -19,6 +19,8 @@ public class Node {
     protected final CommunicationLogger commLogger;
 
     protected final MessageAuthenticator auth;
+    protected MessageSender sender;
+    protected MessageReceiver receiver;
 
     protected final ExecutorManager executorManager;
 
@@ -32,5 +34,29 @@ public class Node {
 
     public String getNodeId() {
         return nodeId;
+    }
+
+    public void start() {
+        Future<?> listenerFuture = executorManager.submitListeningTask(receiver::startListening);
+
+        // Block main thread
+        try {
+            listenerFuture.get(); // Blocks until listener stops
+        } catch (InterruptedException e) {
+            logger.info("Main thread interrupted - initiating shutdown");
+            Thread.currentThread().interrupt();
+        } catch (ExecutionException e) {
+            logger.error("Listener thread failed: {}", e.getCause().getMessage(), e);
+            throw new RuntimeException("Listener failed", e.getCause());
+        }
+    }
+
+    public void shutdown() {
+        logger.info("Shutting down node {}", nodeId);
+        receiver.shutdown();
+        sender.shutdown();
+        executorManager.shutdown();
+
+        logger.info("Node {} shutdown complete", nodeId);
     }
 }
