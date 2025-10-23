@@ -43,7 +43,10 @@ public class ClientNode {
      */
     private MessageServiceOuterClass.ClientRequest generateClientRequest(MessageServiceOuterClass.Transaction transaction) {
         long timestamp = System.currentTimeMillis();
-        return MessageServiceOuterClass.ClientRequest.newBuilder().setTransaction(transaction).setTimestamp(timestamp).setClientId(transaction.getSender()).build();
+        MessageServiceOuterClass.Operation op = MessageServiceOuterClass.Operation.newBuilder()
+                .setTransfer(transaction)
+                .build();
+        return MessageServiceOuterClass.ClientRequest.newBuilder().setOperation(op).setTimestamp(timestamp).setClientId(transaction.getSender()).build();
     }
 
     public void processTransaction(MessageServiceOuterClass.Transaction transaction) {

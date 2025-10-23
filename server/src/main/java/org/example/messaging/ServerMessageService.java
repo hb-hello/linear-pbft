@@ -31,14 +31,14 @@ public class ServerMessageService extends MessageServiceGrpc.MessageServiceImplB
     @Override
     public void request(MessageServiceOuterClass.ClientRequest request, StreamObserver<Empty> responseObserver) {
         communicationLogger.add(request);
-        logger.info("MESSAGE: <REQUEST, ({}, {}, {}), {}, {}> received from client {}",
-                request.getTransaction().getSender(),
-                request.getTransaction().getReceiver(),
-                request.getTransaction().getAmount(),
-                request.getTimestamp(),
-                request.getClientId(),
-                request.getClientId()
-        );
+//        logger.info("MESSAGE: <REQUEST, ({}, {}, {}), {}, {}> received from client {}",
+//                request.getTransaction().getSender(),
+//                request.getTransaction().getReceiver(),
+//                request.getTransaction().getAmount(),
+//                request.getTimestamp(),
+//                request.getClientId(),
+//                request.getClientId()
+//        );
 
         if (!auth.verify(request)) {
             logger.warn("Invalid signature for client request from client {}", request.getClientId());

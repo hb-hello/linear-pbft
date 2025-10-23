@@ -23,13 +23,35 @@ public class CommunicationLogger {
     }
 
     public void add(MessageServiceOuterClass.ClientRequest request) {
-        add(String.format("<REQUEST, (%s, %s, %f), %d, %s> received from client %s",
-                        request.getTransaction().getSender(),
-                        request.getTransaction().getReceiver(),
-                        request.getTransaction().getAmount(),
+
+        switch(request.getOperation().getOpCase()) {
+            case TRANSFER:
+                MessageServiceOuterClass.Transaction transfer = request.getOperation().getTransfer();
+                add(String.format("<REQUEST, TRANSFER (%s -> %s, %f), %d, %s> received from client %s",
+                        transfer.getSender(),
+                        transfer.getReceiver(),
+                        transfer.getAmount(),
                         request.getTimestamp(),
                         request.getClientId(),
                         request.getClientId()));
+                return;
+            case BALANCE_REQUEST:
+                MessageServiceOuterClass.BalanceRequest balanceRequest = request.getOperation().getBalanceRequest();
+                add(String.format("<REQUEST, BALANCE_REQUEST (%s), %d, %s> received from client %s",
+                        balanceRequest.getAccountId(),
+                        request.getTimestamp(),
+                        request.getClientId(),
+                        request.getClientId()));
+                return;
+            case OP_NOT_SET:
+                add(String.format("<REQUEST, UNKNOWN OPERATION, %d, %s> received from client %s",
+                            request.getTimestamp(),
+                            request.getClientId(),
+                            request.getClientId()));
+                return;
+            default:
+                return;
+        }
     }
 
     public void clearLogs() {
