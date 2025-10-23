@@ -2,50 +2,63 @@ package org.example;
 
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.example.crypto.MessageAuthenticator;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.concurrent.TimeUnit;
 
 public class MessageReceiver {
 
-    private static final Logger logger = LoggerFactory.getLogger(MessageReceiver.class);
+    private static final Logger logger = LogManager.getLogger(MessageReceiver.class);
 
     private final String nodeId;
     private final Server grpcServer;
     private final ServerActivityInterceptor interceptor;
 
     public MessageReceiver(String nodeId,
-                           Node node,
-                           CommunicationLogger commLogger, MessageAuthenticator auth) {
+                           MessageServiceGrpc.MessageServiceImplBase service, ServerActivityInterceptor interceptor) {
         this.nodeId = nodeId;
-        this.interceptor = new ServerActivityInterceptor();
+        this.interceptor = interceptor;
 
-        NodeMessageService nodeMessageService = new NodeMessageService(node, commLogger, auth);
         this.grpcServer = ServerBuilder
                 .forPort(Config.getServerPort(nodeId))
-                .addService(nodeMessageService)
+                .addService(service)
                 .intercept(interceptor)
                 .build();
     }
 
+    // Overloaded constructor without interceptor parameter
+    public MessageReceiver(String nodeId,
+                           MessageServiceGrpc.MessageServiceImplBase service,
+                           CommunicationLogger commLogger, MessageAuthenticator auth) {
+        this.nodeId = nodeId;
+        this.interceptor = null;
+
+        this.grpcServer = ServerBuilder
+                .forPort(Config.getServerPort(nodeId))
+                .addService(service)
+                .build();
+    }
+
     public void setActive(boolean active) {
-        interceptor.setActiveFlag(active);
+        if (interceptor != null) {
+            interceptor.setActiveFlag(active);
+        }
     }
 
     public void startListening() {
         try {
             grpcServer.start();
-            logger.info("GRPC Server {} started listening on port {}",
+            logger.info("GRPC Server for node {} started listening on port {}",
                     nodeId, Config.getServerPort(nodeId));
             grpcServer.awaitTermination();
         } catch (IOException e) {
-            logger.error("Server {}: Error in starting GRPC server : {}", nodeId, e.getMessage());
+            logger.error("Node {}: Error in starting GRPC server : {}", nodeId, e.getMessage());
             throw new RuntimeException(e);
         } catch (InterruptedException e) {
-            logger.error("Server {}: GRPC server interrupted : {}", nodeId, e.getMessage());
+            logger.error("Node {}: GRPC server interrupted : {}", nodeId, e.getMessage());
             logger.info("GRPC server was shut down.");
             throw new RuntimeException(e);
         }

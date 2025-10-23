@@ -34,7 +34,7 @@ public class Node {
 
         this.auth = new MessageAuthenticator(nodeId);
         this.sender = new NodeMessageSender(nodeId, commLogger, auth);
-        this.receiver = new MessageReceiver(nodeId, this, commLogger, auth);
+        this.receiver = new NodeMessageReceiver(this, commLogger, auth);
 
         this.listenerExecutor = java.util.concurrent.Executors.newSingleThreadExecutor();
         this.executorManager = new ExecutorManager(OTHER_SERVER_COUNT);
@@ -43,6 +43,10 @@ public class Node {
     public void setActive(boolean active) {
         sender.setActive(active);
         receiver.setActive(active);
+    }
+
+    public String getNodeId() {
+        return nodeId;
     }
 
     public void start() {
