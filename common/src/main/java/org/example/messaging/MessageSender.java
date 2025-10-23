@@ -20,6 +20,10 @@ public class MessageSender {
         this.auth = auth;
     }
 
+    public void setActive(boolean active) {
+        // needed for subclass overrides
+    }
+
     // Generic method to sign and send a message using the provided gRPC method
     protected Message signAndSend(String targetNodeId, Message message, BiFunction<MessageServiceGrpc.MessageServiceBlockingStub, Message, Message> method) {
         Message signedMessage = auth.sign(message);
