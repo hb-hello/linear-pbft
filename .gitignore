@@ -40,5 +40,4 @@ build/
 node-digest.txt
 keys/
 
-copilot.*.xml
-encodings.xml
+.idea/
