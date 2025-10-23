@@ -1,9 +1,11 @@
-package org.example;
+package org.example.messaging;
 
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.example.MessageServiceGrpc;
+import org.example.config.Config;
 import org.example.crypto.MessageAuthenticator;
 
 import java.io.IOException;
@@ -17,8 +19,8 @@ public class MessageReceiver {
     private final Server grpcServer;
     private final ServerActivityInterceptor interceptor;
 
-    public MessageReceiver(String nodeId,
-                           MessageServiceGrpc.MessageServiceImplBase service, ServerActivityInterceptor interceptor) {
+    protected MessageReceiver(String nodeId,
+                              MessageServiceGrpc.MessageServiceImplBase service, ServerActivityInterceptor interceptor) {
         this.nodeId = nodeId;
         this.interceptor = interceptor;
 
@@ -30,7 +32,7 @@ public class MessageReceiver {
     }
 
     // Overloaded constructor without interceptor parameter
-    public MessageReceiver(String nodeId,
+    protected MessageReceiver(String nodeId,
                            MessageServiceGrpc.MessageServiceImplBase service,
                            CommunicationLogger commLogger, MessageAuthenticator auth) {
         this.nodeId = nodeId;

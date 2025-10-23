@@ -1,7 +1,8 @@
-package org.example;
+package org.example.config;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.example.serialization.ServerDetails;
 
 import java.io.FileInputStream;
 import java.io.IOException;

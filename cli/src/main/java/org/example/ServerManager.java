@@ -3,9 +3,8 @@ package org.example;
 import com.google.protobuf.Empty;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
-import java.util.ArrayList;
-import java.util.List;
+import org.example.config.Config;
+import org.example.messaging.StubManager;
 
 public class ServerManager {
 

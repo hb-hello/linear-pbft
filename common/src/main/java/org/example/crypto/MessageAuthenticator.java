@@ -1,7 +1,7 @@
 package org.example.crypto;
 
 import com.google.protobuf.Message;
-import org.example.Config;
+import org.example.config.Config;
 
 public class MessageAuthenticator {
 

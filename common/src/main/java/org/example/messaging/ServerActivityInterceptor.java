@@ -1,4 +1,4 @@
-package org.example;
+package org.example.messaging;
 
 import io.grpc.Metadata;
 import io.grpc.ServerCall;

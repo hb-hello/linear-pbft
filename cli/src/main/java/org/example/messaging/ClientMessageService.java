@@ -1,7 +1,9 @@
-package org.example;
+package org.example.messaging;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.example.ClientNode;
+import org.example.MessageServiceGrpc;
 import org.example.crypto.MessageAuthenticator;
 
 public class ClientMessageService extends MessageServiceGrpc.MessageServiceImplBase {

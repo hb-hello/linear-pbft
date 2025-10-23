@@ -1,5 +1,6 @@
-package org.example;
+package org.example.messaging;
 
+import org.example.ServerNode;
 import org.example.crypto.MessageAuthenticator;
 
 public class ServerMessageReceiver extends MessageReceiver {

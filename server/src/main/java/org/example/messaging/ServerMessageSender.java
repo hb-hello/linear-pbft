@@ -1,7 +1,8 @@
-package org.example;
+package org.example.messaging;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.example.MessageServiceOuterClass;
 import org.example.crypto.MessageAuthenticator;
 
 import java.util.concurrent.atomic.AtomicBoolean;

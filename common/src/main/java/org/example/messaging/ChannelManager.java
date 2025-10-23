@@ -1,9 +1,11 @@
-package org.example;
+package org.example.messaging;
 
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.example.config.Config;
+import org.example.serialization.ServerDetails;
 
 import java.util.HashMap;
 import java.util.Map;

@@ -1,6 +1,11 @@
 package org.example;
 
+import org.example.config.Config;
 import org.example.crypto.MessageAuthenticator;
+import org.example.messaging.CommunicationLogger;
+import org.example.messaging.MessageReceiver;
+import org.example.messaging.ServerMessageReceiver;
+import org.example.messaging.ServerMessageSender;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

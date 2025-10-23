@@ -1,9 +1,11 @@
-package org.example;
+package org.example.config;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.example.serialization.ClientDetails;
+import org.example.serialization.ServerDetails;
 
 import java.io.File;
 import java.io.IOException;

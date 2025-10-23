@@ -1,7 +1,7 @@
-package org.example;
+package org.example.messaging;
 
 import com.google.protobuf.Message;
-import io.grpc.stub.AbstractBlockingStub;
+import org.example.MessageServiceGrpc;
 import org.example.crypto.MessageAuthenticator;
 
 import java.util.function.BiFunction;
@@ -27,7 +27,7 @@ public class MessageSender {
         return method.apply(stub, signedMessage);
     }
 
-    protected void shutdown() {
+    public void shutdown() {
         stubManager.shutdown();
     }
 

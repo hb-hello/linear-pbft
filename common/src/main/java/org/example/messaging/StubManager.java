@@ -1,4 +1,6 @@
-package org.example;
+package org.example.messaging;
+
+import org.example.MessageServiceGrpc;
 
 public class StubManager {
 

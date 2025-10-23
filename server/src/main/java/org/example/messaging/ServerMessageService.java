@@ -1,9 +1,13 @@
-package org.example;
+package org.example.messaging;
 
 import com.google.protobuf.Empty;
 import io.grpc.stub.StreamObserver;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.example.CLILogging;
+import org.example.MessageServiceGrpc;
+import org.example.MessageServiceOuterClass;
+import org.example.ServerNode;
 import org.example.crypto.MessageAuthenticator;
 
 //import static org.example.CLILogging.formatNewViews;

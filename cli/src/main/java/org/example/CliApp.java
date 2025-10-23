@@ -1,5 +1,7 @@
 package org.example;
 
+import org.example.config.Config;
+
 import java.util.List;
 import java.util.Scanner;
 
