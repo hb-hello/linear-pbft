@@ -3,10 +3,7 @@ package org.example;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 
 public class ExecutorManager {
 
@@ -17,6 +14,8 @@ public class ExecutorManager {
     private final ExecutorService networkExecutor;
     private final ExecutorService streamingExecutor;
     private final ExecutorService messageExecutor;
+    private final ExecutorService listeningExecutor;
+
 
 
     public ExecutorManager(int otherServerCount) {
@@ -46,6 +45,9 @@ public class ExecutorManager {
         // Message processing: Cached thread pool that can scale with incoming message load
         this.messageExecutor = Executors.newCachedThreadPool(createNamedThreadFactory("message-processor"));
 
+        // Executor for listening to incoming messages - for use with grpc server
+        this.listeningExecutor = Executors.newSingleThreadExecutor(createNamedThreadFactory("grpc-listener"));
+
     }
 
     public void submitStateTransition(Runnable task) {
@@ -68,12 +70,17 @@ public class ExecutorManager {
         messageExecutor.submit(task);
     }
 
+    public Future<?> submitListeningTask(Runnable task) {
+        return listeningExecutor.submit(task);
+    }
+
     public void shutdown() {
         shutdownExecutor(networkExecutor, "Network");
         shutdownExecutor(streamingExecutor, "Streaming");
         shutdownExecutor(messageExecutor, "Message");
         shutdownExecutor(logExecutor, "Log");
         shutdownExecutor(stateExecutor, "State");
+        shutdownExecutor(listeningExecutor, "Listening");
     }
 
     private void shutdownExecutor(ExecutorService executor, String name) {

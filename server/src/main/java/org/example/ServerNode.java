@@ -1,48 +1,38 @@
 package org.example;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.example.config.Config;
 import org.example.crypto.MessageAuthenticator;
 import org.example.messaging.CommunicationLogger;
 import org.example.messaging.MessageReceiver;
 import org.example.messaging.ServerMessageReceiver;
 import org.example.messaging.ServerMessageSender;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
-public class ServerNode {
+public class ServerNode extends Node {
 
-    private static final Logger logger = LoggerFactory.getLogger(ServerNode.class);
+    private static final Logger logger = LogManager.getLogger(ServerNode.class);
 
     private final int MAJORITY_COUNT = 4;
     private final int OTHER_SERVER_COUNT = 6;
     private final long REQUEST_TIMEOUT_MILLIS = 1000;
 
-    private final String nodeId;
-
-    private final CommunicationLogger commLogger;
-
-    private final MessageAuthenticator auth;
     private final ServerMessageSender sender;
-    private final MessageReceiver receiver;
+    private final ServerMessageReceiver receiver;
 
     private final ExecutorService listenerExecutor;
-    private final ExecutorManager executorManager;
 
     public ServerNode(String nodeId) {
-        this.nodeId = nodeId;
-        this.commLogger = new CommunicationLogger();
-
-        this.auth = new MessageAuthenticator(nodeId);
+        super(nodeId);
         this.sender = new ServerMessageSender(nodeId, commLogger, auth);
         this.receiver = new ServerMessageReceiver(this, commLogger, auth);
 
         this.listenerExecutor = java.util.concurrent.Executors.newSingleThreadExecutor();
-        this.executorManager = new ExecutorManager(OTHER_SERVER_COUNT);
     }
 
     public void setActive(boolean active) {
@@ -50,12 +40,8 @@ public class ServerNode {
         receiver.setActive(active);
     }
 
-    public String getNodeId() {
-        return nodeId;
-    }
-
     public void start() {
-        Future<?> listenerFuture = listenerExecutor.submit(receiver::startListening);
+        Future<?> listenerFuture = executorManager.submitListeningTask(receiver::startListening);
 
         // Block main thread
         try {
@@ -74,17 +60,6 @@ public class ServerNode {
         receiver.shutdown();
         sender.shutdown();
         executorManager.shutdown();
-
-        // Shutdown listener executor
-        listenerExecutor.shutdown();
-        try {
-            if (!listenerExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
-                listenerExecutor.shutdownNow();
-            }
-        } catch (InterruptedException e) {
-            listenerExecutor.shutdownNow();
-            Thread.currentThread().interrupt();
-        }
 
         logger.info("Node {} shutdown complete", nodeId);
     }
