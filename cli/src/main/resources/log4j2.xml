@@ -6,16 +6,10 @@
             <PatternLayout pattern="%d{ISO8601} %-5p [%t]: %m%n"/>
         </Console>
 
-        <Routing name="RoutingAppender">
-            <Routes pattern="$${ctx:dynamic_log}">
-                <Route>
-                    <File name="FileAppender-${ctx:dynamic_log}" fileName="C:/Users/hbiyani/OneDrive - Stony Brook University/Documents/DEV/stable-paxos/logs/server/server-${ctx:dynamic_log}.log">
-                        <PatternLayout pattern="%d{ISO8601} %-5p [%t]: %m%n"/>
-                    </File>
-                </Route>
-            </Routes>
-        </Routing>
-
+        <!-- New file appender for logs.log -->
+        <File name="FILE" fileName="logs/cli.log">
+            <PatternLayout pattern="%d{ISO8601} %-5p [%t]: %m%n"/>
+        </File>
     </Appenders>
 
     <Loggers>

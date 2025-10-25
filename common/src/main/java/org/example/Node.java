@@ -27,25 +27,44 @@ public class Node {
 
     protected final ConsensusMessageTracker<String> messageTracker;
 
+    private volatile Future<?> listenerFuture;
+
     protected Node(String nodeId) {
         this.nodeId = nodeId;
         this.commLogger = new CommunicationLogger();
         this.auth = new MessageAuthenticator(nodeId);
 
         this.executorManager = new ExecutorManager(10);
-        this.messageTracker = new ConsensusMessageTracker();
+        this.messageTracker = new ConsensusMessageTracker<>();
     }
 
     public String getNodeId() {
         return nodeId;
     }
 
-    public void start() {
-        Future<?> listenerFuture = executorManager.submitListeningTask(receiver::startListening);
+    /**
+     * Starts the gRPC listener without blocking. Returns a Future that completes when the
+     * listener stops. Safe to call multiple times; subsequent calls return the same Future.
+     */
+    public Future<?> startAsync() {
+        if (listenerFuture == null) {
+            synchronized (this) {
+                if (listenerFuture == null) {
+                    listenerFuture = executorManager.submitListeningTask(receiver::startListening);
+                }
+            }
+        }
+        logger.info("Submitted listener start task for node {}", nodeId);
+        return listenerFuture;
+    }
 
-        // Block main thread
+    /**
+     * Starts the gRPC listener and blocks the current thread until it stops.
+     */
+    public void start() {
+        Future<?> future = startAsync();
         try {
-            listenerFuture.get(); // Blocks until listener stops
+            future.get(); // Blocks until listener stops
         } catch (InterruptedException e) {
             logger.info("Main thread interrupted - initiating shutdown");
             Thread.currentThread().interrupt();

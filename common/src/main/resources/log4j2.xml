@@ -6,6 +6,11 @@
             <PatternLayout pattern="%d{ISO8601} %-5p [%t]: %m%n"/>
         </Console>
 
+        <!-- Add a file appender so Root's FILE reference resolves -->
+        <File name="FILE" fileName="logs/common.log">
+            <PatternLayout pattern="%d{ISO8601} %-5p [%t]: %m%n"/>
+        </File>
+
         <Routing name="RoutingAppender">
             <Routes pattern="$${ctx:dynamic_log}">
                 <Route>

@@ -2,6 +2,7 @@ package org.example.config;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.example.serialization.ClientDetails;
 import org.example.serialization.ServerDetails;
 
 import java.io.FileInputStream;
@@ -16,6 +17,7 @@ public class Config {
 
     // Static configuration fields - accessible from anywhere
     private static Map<String, ServerDetails> servers;
+    private static Map<String, ClientDetails> clients;
     private static Map<String, Double> clientBalances;
     private static String transactionSetsPath;
     private static String privateKeyDir;
@@ -84,8 +86,10 @@ public class Config {
         logger.info("Loaded {} servers", servers.size());
 
         logger.info("Loading client details from: {}", clientDetailsPath);
-        clientBalances = ConfigLoader.loadClientDetails(clientDetailsPath);
+        clientBalances = ConfigLoader.loadClientBalances(clientDetailsPath);
         logger.info("Loaded {} clients", clientBalances.size());
+
+        clients = ConfigLoader.loadClientsFromConfig(clientDetailsPath);
 
         initialized = true;
         logger.info("Config initialization complete");
@@ -188,6 +192,15 @@ public class Config {
             return servers.get(serverId).port();
         } else {
             throw new NoSuchElementException(("Server ID " + serverId + " not found in config"));
+        }
+    }
+
+    public static int getClientPort(String clientId) {
+        ensureInitialized();
+        if (clients.containsKey(clientId)) {
+            return clients.get(clientId).port();
+        } else {
+            throw new NoSuchElementException(("Client ID " + clientId + " not found in config"));
         }
     }
 

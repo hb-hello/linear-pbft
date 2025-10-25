@@ -4,7 +4,7 @@ import com.google.protobuf.Message;
 import org.example.MessageServiceGrpc;
 import org.example.crypto.MessageAuthenticator;
 
-import java.util.function.BiFunction;
+import java.util.function.BiConsumer;
 
 public class MessageSender {
 
@@ -25,10 +25,10 @@ public class MessageSender {
     }
 
     // Generic method to sign and send a message using the provided gRPC method
-    protected Message signAndSend(String targetNodeId, Message message, BiFunction<MessageServiceGrpc.MessageServiceBlockingStub, Message, Message> method) {
+    protected void signAndSend(String targetNodeId, Message message, BiConsumer<MessageServiceGrpc.MessageServiceFutureStub, Message> method) {
         Message signedMessage = auth.sign(message);
-        MessageServiceGrpc.MessageServiceBlockingStub stub = stubManager.getBlockingStub(targetNodeId);
-        return method.apply(stub, signedMessage);
+        MessageServiceGrpc.MessageServiceFutureStub stub = stubManager.getFutureStub(targetNodeId);
+        method.accept(stub, signedMessage);
     }
 
     public void shutdown() {

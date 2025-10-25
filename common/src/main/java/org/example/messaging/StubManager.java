@@ -18,6 +18,10 @@ public class StubManager {
         return MessageServiceGrpc.newBlockingStub(channelManager.getChannel(serverId));
     }
 
+    public MessageServiceGrpc.MessageServiceFutureStub getFutureStub(String serverId) {
+        return MessageServiceGrpc.newFutureStub(channelManager.getChannel(serverId));
+    }
+
     public void shutdown() {
         channelManager.shutdownChannels();
     }

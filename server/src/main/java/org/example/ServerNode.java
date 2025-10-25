@@ -38,7 +38,7 @@ public class ServerNode extends Node {
     public static void main(String[] args) {
 
         if (args.length != 1) {
-            System.err.println("Usage: java Node <nodeId>");
+            System.err.println("Node ID argument required");
             System.exit(1);
         }
 

@@ -48,11 +48,12 @@ final class Pem {
             for (Map.Entry<String, String> entry : manifest.getKeys().entrySet()) {
                 String id = entry.getKey();
                 String pem = entry.getValue()
-                        .replace("\\n", "\n")
-                        .replaceAll("\\s", "");
-                // Remove PEM header/footer if present
-                pem = pem.replaceAll("-----BEGIN PUBLIC KEY-----", "")
-                         .replaceAll("-----END PUBLIC KEY-----", "");
+                        .replace("\\n", "\n");
+                // Remove PEM header/footer first (allow optional spaces within labels)
+                pem = pem.replaceAll("-----BEGIN\\s*PUBLIC\\s*KEY-----", "")
+                         .replaceAll("-----END\\s*PUBLIC\\s*KEY-----", "");
+                // Then remove all whitespace to get a contiguous Base64 string
+                pem = pem.replaceAll("\\s", "");
                 byte[] der = Base64.getDecoder().decode(pem);
                 PublicKey pub = KeyFactory.getInstance("Ed25519").generatePublic(new X509EncodedKeySpec(der));
                 result.put(id, pub);

@@ -16,29 +16,32 @@ public class MessageReceiver {
     private static final Logger logger = LogManager.getLogger(MessageReceiver.class);
 
     private final String nodeId;
+    private final int port;
     private final Server grpcServer;
     private final ServerActivityInterceptor interceptor;
 
-    protected MessageReceiver(String nodeId,
+    protected MessageReceiver(String nodeId, int port,
                               MessageServiceGrpc.MessageServiceImplBase service, ServerActivityInterceptor interceptor) {
         this.nodeId = nodeId;
+        this.port = port;
         this.interceptor = interceptor;
 
         this.grpcServer = ServerBuilder
-                .forPort(Config.getServerPort(nodeId))
+                .forPort(port)
                 .addService(service)
                 .intercept(interceptor)
                 .build();
     }
 
     // Overloaded constructor without interceptor parameter
-    protected MessageReceiver(String nodeId,
+    protected MessageReceiver(String nodeId, int port,
                            MessageServiceGrpc.MessageServiceImplBase service) {
         this.nodeId = nodeId;
+        this.port = port;
         this.interceptor = null;
 
         this.grpcServer = ServerBuilder
-                .forPort(Config.getServerPort(nodeId))
+                .forPort(port)
                 .addService(service)
                 .build();
     }
@@ -53,7 +56,7 @@ public class MessageReceiver {
         try {
             grpcServer.start();
             logger.info("GRPC Server for node {} started listening on port {}",
-                    nodeId, Config.getServerPort(nodeId));
+                    nodeId, port);
             grpcServer.awaitTermination();
         } catch (IOException e) {
             logger.error("Node {}: Error in starting GRPC server : {}", nodeId, e.getMessage());

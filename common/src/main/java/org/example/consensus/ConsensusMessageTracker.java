@@ -26,7 +26,7 @@ public class ConsensusMessageTracker<K> {
     /** Register a pre-constructed consensus bucket. If a bucket already exists for the same id, keeps the existing one. */
     public <V> void startTracking(ConsensusMessage<K, V> consensus) {
         inFlight.putIfAbsent(consensus.requestId(), consensus);
-        logger.debug("Start tracking requestId={} with required responses = {}.", consensus.requestId(), consensus.required());
+        logger.info("Start tracking requestId={} with required responses = {}.", consensus.requestId(), consensus.required());
     }
 
     /** Convenience: construct and register a consensus bucket, then return it to the caller. */
@@ -45,7 +45,7 @@ public class ConsensusMessageTracker<K> {
     public boolean recordReply(K requestId, Message reply) {
         ConsensusMessage<K, ?> state = inFlight.get(requestId);
         if (state == null) {
-            logger.debug("Received reply for untracked requestId={}, ignoring.", requestId);
+            logger.info("Received reply for untracked requestId={}, ignoring.", requestId);
             return false;
         }
         state.addReply(reply);
@@ -67,7 +67,7 @@ public class ConsensusMessageTracker<K> {
                 return true;
             }
         }
-        logger.debug("Received reply that matched no in-flight request. Ignoring.");
+        logger.info("Received reply that matched no in-flight request. Ignoring.");
         return false;
     }
 

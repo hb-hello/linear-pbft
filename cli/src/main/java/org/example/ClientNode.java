@@ -1,16 +1,41 @@
 package org.example;
 
+import com.google.protobuf.Message;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.example.config.Config;
 import org.example.messaging.ClientMessageReceiver;
+import org.example.messaging.ClientMessageSender;
+
+import java.time.Duration;
+import java.util.concurrent.TimeoutException;
 
 public class ClientNode extends Node {
     private static final Logger logger = LogManager.getLogger(ClientNode.class);
 
+    private static final long REQUEST_TIMEOUT_MILLIS = 5000;
+    private static final int SERVER_COUNT = 7;
+    private static final int MAJORITY_COUNT = 4;
+
+    private String primaryServerId;
+    private long viewNumber;
+
     public ClientNode(String nodeId) {
         super(nodeId);
-//        this.sender = new ClientMessageSender(nodeId, commLogger, auth);
+        this.sender = new ClientMessageSender(nodeId, commLogger, auth);
         this.receiver = new ClientMessageReceiver(this, auth);
+
+        updateViewAndSetPrimary(1L); // Initial view
+    }
+
+    private static String requestIdFor(String clientId, long timestamp) {
+        return clientId + ":" + timestamp;
+    }
+
+    private void updateViewAndSetPrimary(long viewNumber) {
+        this.viewNumber = viewNumber;
+        this.primaryServerId = "n" + (viewNumber % SERVER_COUNT);
+        logger.info("Updated primary server to {} for view {}", primaryServerId, viewNumber);
     }
 
     /**
@@ -27,8 +52,84 @@ public class ClientNode extends Node {
         return MessageServiceOuterClass.ClientRequest.newBuilder().setOperation(op).setTimestamp(timestamp).setClientId(transaction.getSender()).build();
     }
 
-    public void processTransaction(MessageServiceOuterClass.Transaction transaction) {
-        MessageServiceOuterClass.ClientRequest clientRequest = generateClientRequest(transaction);
+    // Send request(s) and await consensus; returns true if consensus reached, false on timeout.
+    private boolean broadcastOrSendClientRequestWithTimeout(MessageServiceOuterClass.ClientRequest clientRequest) {
+        String clientId = clientRequest.getClientId();
+        long timestamp = clientRequest.getTimestamp();
+        String requestId = requestIdFor(clientId, timestamp);
+
+        if (primaryServerId == null) {
+            // No known primary: broadcast to all servers concurrently
+            logger.info("No primary known. Broadcasting request {} to all servers", requestId);
+            for (String serverId : Config.getServerIds()) {
+                ((ClientMessageSender) this.sender).sendRequest(serverId, clientRequest);
+            }
+        } else {
+            // Send to known primary
+            ((ClientMessageSender) this.sender).sendRequest(primaryServerId, clientRequest);
+            logger.info("Sent client request to primary {} for id {}", primaryServerId, requestId);
+        }
+
+        // Await consensus
+        try {
+            Message consensus = messageTracker.awaitConsensus(requestId, Duration.ofMillis(REQUEST_TIMEOUT_MILLIS));
+            MessageServiceOuterClass.ClientReply finalReply = (MessageServiceOuterClass.ClientReply) consensus;
+            handleOperationsResult(finalReply);
+            return true;
+        } catch (TimeoutException te) {
+            logger.warn("Timed out waiting for consensus for id {} after {} ms", requestId, REQUEST_TIMEOUT_MILLIS);
+            return false;
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            logger.warn("Interrupted while waiting for consensus for id {}", requestId);
+            return false;
+        }
     }
 
+    public void processTransaction(MessageServiceOuterClass.Transaction transaction) {
+        MessageServiceOuterClass.ClientRequest clientRequest = generateClientRequest(transaction);
+
+        String requestId = requestIdFor(clientRequest.getClientId(), clientRequest.getTimestamp());
+        logger.info("Processing transaction from client {} at ts {} (requestId={})", clientRequest.getClientId(), clientRequest.getTimestamp(), requestId);
+
+        // Register a consensus bucket for this request ONCE. We do not cancel this between retries.
+        messageTracker.startTracking(
+                requestId,
+                MAJORITY_COUNT,
+                (Message m) -> {
+                    MessageServiceOuterClass.ClientReply r = (MessageServiceOuterClass.ClientReply) m;
+                    return requestIdFor(r.getClientId(), r.getTimestamp());
+                },
+                (Message m) -> ((MessageServiceOuterClass.ClientReply) m).getServerId(),
+                (Message m) -> ((MessageServiceOuterClass.ClientReply) m).getResult()
+        );
+
+        // Keep retrying forever until consensus is reached
+        while (true) {
+            boolean success = broadcastOrSendClientRequestWithTimeout(clientRequest);
+            if (success) {
+                break;
+            }
+            // On timeout, forget primary to trigger broadcast on the next attempt
+            primaryServerId = null;
+            logger.info("Retrying request after timeout for client {} at ts {} (requestId={})", clientRequest.getClientId(), clientRequest.getTimestamp(), requestId);
+        }
+    }
+
+    private void handleOperationsResult(MessageServiceOuterClass.ClientReply reply) {
+        logger.info("Consensus reached for id {}: result={}, from={}", requestIdFor(reply.getClientId(), reply.getTimestamp()),
+                reply.getResult(), reply.getServerId());
+        updateViewAndSetPrimary(reply.getViewNumber());
+    }
+
+    public void onClientReply(MessageServiceOuterClass.ClientReply reply) {
+        // Route reply into tracker using O(1) request id derivation
+        boolean accepted = messageTracker.recordReply(
+                requestIdFor(reply.getClientId(), reply.getTimestamp()),
+                reply);
+        if (!accepted) {
+            logger.info("Reply from {} did not match any in-flight request (client={}, ts={})",
+                    reply.getServerId(), reply.getClientId(), reply.getTimestamp());
+        }
+    }
 }

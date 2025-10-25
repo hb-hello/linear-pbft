@@ -22,15 +22,15 @@ public class ClientMessageService extends MessageServiceGrpc.MessageServiceImplB
 
     @Override
     public void reply(MessageServiceOuterClass.ClientReply request, StreamObserver<Empty> responseObserver) {
-//        logger.info("Received reply from server {}: {}", request.getServerId(), request.getResult());
-        // Verify the authenticity of the reply
+        // Verify signature
         if (!auth.verify(request)) {
-            logger.warn("Invalid signature for client request from client {}", request.getClientId());
-            return;
+            logger.warn("Invalid signature on ClientReply from {} for client {}", request.getServerId(), request.getClientId());
         }
-        logger.info("Signature verified for client request from client {}", request.getClientId());
-        // Process the reply
-        responseObserver.onNext(Empty.newBuilder().build());
+        // Feed into consensus tracker
+        clientNode.onClientReply(request);
+
+        // Ack
+        responseObserver.onNext(Empty.getDefaultInstance());
         responseObserver.onCompleted();
     }
 }

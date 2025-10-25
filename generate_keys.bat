@@ -6,7 +6,7 @@ if not exist keys mkdir keys
 if not exist keys\private mkdir keys\private
 
 REM List of clients
-set clients=clientA clientB clientC clientD clientE clientF clientG clientH clientI clientJ
+set clients=A B C D E F G H I J
 REM List of nodes
 set nodes=n1 n2 n3 n4 n5 n6 n7
 
@@ -22,7 +22,7 @@ for %%C in (%clients%) do (
     for /f "delims=" %%P in (keys\%%C.pub.pem) do (
         set "line=%%P"
         set "line=!line: =!"
-        set "pubkey=!pubkey!!line!\\n!"
+        set "pubkey=!pubkey!!line!\n"
     )
     if !first! == 1 (
         set first=0
@@ -41,7 +41,7 @@ for %%N in (%nodes%) do (
     for /f "delims=" %%P in (keys\%%N.pub.pem) do (
         set "line=%%P"
         set "line=!line: =!"
-        set "pubkey=!pubkey!!line!\\n!"
+        set "pubkey=!pubkey!!line!\n"
     )
     if !first! == 1 (
         set first=0

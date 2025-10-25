@@ -32,7 +32,7 @@ public class ConfigLoader {
         }
     }
 
-    public static Map<String, Double> loadClientDetails(String clientDetailsFilePath) {
+    public static Map<String, Double> loadClientBalances(String clientDetailsFilePath) {
         try {
             ObjectMapper mapper = new ObjectMapper();
             List<ClientDetails> clientList = mapper.readValue(new File(clientDetailsFilePath), new TypeReference<>() {});
@@ -43,6 +43,21 @@ public class ConfigLoader {
             return clientDetails;
         } catch (IOException e) {
             logger.error("Error when loading client details to initialize state : {}", e.getMessage());
+            throw new RuntimeException(e);
+        }
+    }
+
+    public static Map<String, ClientDetails> loadClientsFromConfig(String clientDetailsFilePath) {
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            List<ClientDetails> clientList = mapper.readValue(new File(clientDetailsFilePath), new TypeReference<>() {});
+            Map<String, ClientDetails> clients = new HashMap<>();
+            for (ClientDetails client : clientList) {
+                clients.put(client.id(), client);
+            }
+            return clients;
+        } catch (IOException e) {
+            logger.error("Failed to load client details from config file {} : {}", clientDetailsFilePath, e.getMessage());
             throw new RuntimeException(e);
         }
     }

@@ -36,7 +36,6 @@ public class ExecutorManager {
 
         // Streaming operations: Fixed thread pool for long-running streaming RPCs
         // Sized for concurrent NewView operations to all servers
-        // These operations hold connections open and process streaming responses
         this.streamingExecutor = Executors.newFixedThreadPool(
                 Math.max(5, otherServerCount),
                 createNamedThreadFactory("streaming-io")
@@ -58,8 +57,8 @@ public class ExecutorManager {
         logExecutor.submit(task);
     }
 
-    public void submitNetworkIO(Runnable task) {
-        networkExecutor.submit(task);
+    public Future<?> submitNetworkIO(Runnable task) {
+        return networkExecutor.submit(task);
     }
 
     public void submitStreamingIO(Runnable task) {

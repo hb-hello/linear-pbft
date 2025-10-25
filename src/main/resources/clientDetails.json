@@ -1,12 +1,12 @@
 [
-  { "id": "A", "startingBalance": 10.0 },
-  { "id": "B", "startingBalance": 10.0 },
-  { "id": "C", "startingBalance": 10.0 },
-  { "id": "D", "startingBalance": 10.0 },
-  { "id": "E", "startingBalance": 10.0 },
-  { "id": "F", "startingBalance": 10.0 },
-  { "id": "G", "startingBalance": 10.0 },
-  { "id": "H", "startingBalance": 10.0 },
-  { "id": "I", "startingBalance": 10.0 },
-  { "id": "J", "startingBalance": 10.0 }
+  { "id": "A", "startingBalance": 10.0, "host": "localhost", "port": 4000 },
+  { "id": "B", "startingBalance": 10.0, "host": "localhost", "port": 4001 },
+  { "id": "C", "startingBalance": 10.0, "host": "localhost", "port": 4002 },
+  { "id": "D", "startingBalance": 10.0, "host": "localhost", "port": 4003 },
+  { "id": "E", "startingBalance": 10.0, "host": "localhost", "port": 4004 },
+  { "id": "F", "startingBalance": 10.0, "host": "localhost", "port": 4005 },
+  { "id": "G", "startingBalance": 10.0, "host": "localhost", "port": 4006 },
+  { "id": "H", "startingBalance": 10.0, "host": "localhost", "port": 4007 },
+  { "id": "I", "startingBalance": 10.0, "host": "localhost", "port": 4008 },
+  { "id": "J", "startingBalance": 10.0, "host": "localhost", "port": 4009 }
 ]
