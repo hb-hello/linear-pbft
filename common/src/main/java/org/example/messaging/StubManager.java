@@ -10,16 +10,16 @@ public class StubManager {
         this.channelManager = new ChannelManager();
     }
 
-    public StubManager(String excludeServerId) {
-        this.channelManager = new ChannelManager(excludeServerId);
+    public StubManager(String excludeNodeId) {
+        this.channelManager = new ChannelManager(excludeNodeId);
     }
 
-    public MessageServiceGrpc.MessageServiceBlockingStub getBlockingStub(String serverId) {
-        return MessageServiceGrpc.newBlockingStub(channelManager.getChannel(serverId));
+    public MessageServiceGrpc.MessageServiceBlockingStub getBlockingStub(String nodeId) {
+        return MessageServiceGrpc.newBlockingStub(channelManager.getChannel(nodeId));
     }
 
-    public MessageServiceGrpc.MessageServiceFutureStub getFutureStub(String serverId) {
-        return MessageServiceGrpc.newFutureStub(channelManager.getChannel(serverId));
+    public MessageServiceGrpc.MessageServiceFutureStub getFutureStub(String nodeId) {
+        return MessageServiceGrpc.newFutureStub(channelManager.getChannel(nodeId));
     }
 
     public void shutdown() {

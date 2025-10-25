@@ -3,6 +3,7 @@ package org.example.config;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.example.serialization.ClientDetails;
+import org.example.serialization.NodeDetails;
 import org.example.serialization.ServerDetails;
 
 import java.io.FileInputStream;
@@ -138,6 +139,26 @@ public class Config {
         if (!initialized) {
             throw new IllegalStateException("Config has not been initialized. Call Config.initialize() first.");
         }
+    }
+
+    public static Map<String, NodeDetails> getNodes() {
+        ensureInitialized();
+        Map<String, NodeDetails> nodes = new HashMap<>();
+        nodes.putAll(servers);
+        nodes.putAll(clients);
+        return nodes;
+    }
+
+    public static Map<String, NodeDetails> getNodesExcept(String nodeId) {
+        ensureInitialized();
+
+        if (nodeId == null) {
+            return getNodes();
+        }
+
+        return getNodes().entrySet().stream()
+                .filter(entry -> !Objects.equals(entry.getKey(), nodeId))
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
     }
 
     /**

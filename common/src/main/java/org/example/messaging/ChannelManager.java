@@ -5,7 +5,8 @@ import io.grpc.ManagedChannelBuilder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.example.config.Config;
-import org.example.serialization.ServerDetails;
+import org.example.serialization.NodeDetails;
+import org.example.serialization.NodeDetails;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -13,59 +14,59 @@ import java.util.Map;
 public class ChannelManager {
 
     private static final Logger logger = LogManager.getLogger(ChannelManager.class);
-    private final HashMap<String, ManagedChannel> channels; // [channels]: Map of server ids and their gRPC channels
-    private final Map<String, ServerDetails> servers;
+    private final HashMap<String, ManagedChannel> channels; // [channels]: Map of node ids and their gRPC channels
+    private final Map<String, NodeDetails> nodes;
 
     // create a constructor
     public ChannelManager() {
         this.channels = new HashMap<>();
-        this.servers = Config.getServers();
+        this.nodes = Config.getNodes();
 
-//        Create channels for all servers in the configuration
-        for(String serverId : servers.keySet()) {
-            createChannel(serverId);
+//        Create channels for all nodes in the configuration
+        for(String nodeId : nodes.keySet()) {
+            createChannel(nodeId);
         }
     }
 
-    public ChannelManager(String excludeServerId) {
+    public ChannelManager(String excludeNodeId) {
         this.channels = new HashMap<>();
-        this.servers = Config.getServersExcept(excludeServerId);
+        this.nodes = Config.getNodesExcept(excludeNodeId);
 
-//        Create channels for all servers in the configuration except the excluded server
-        for (String serverId : servers.keySet()) {
-            if (!serverId.equals(excludeServerId)) {
-                createChannel(serverId);
+//        Create channels for all nodes in the configuration except the excluded node
+        for (String nodeId : nodes.keySet()) {
+            if (!nodeId.equals(excludeNodeId)) {
+                createChannel(nodeId);
             }
         }
     }
 
-    public void createChannel(String serverId) {
+    public void createChannel(String nodeId) {
 
-        if (!servers.containsKey(serverId)) {
-            logger.error("Server ID {} not found in configuration while creating GRPC channel.", serverId);
+        if (!nodes.containsKey(nodeId)) {
+            logger.error("Node ID {} not found in configuration while creating GRPC channel.", nodeId);
             throw new RuntimeException();
         }
-        ServerDetails server = servers.get(serverId);
-        ManagedChannel channel = ManagedChannelBuilder.forAddress(server.host(), server.port()).usePlaintext().build();
-        channels.put(serverId, channel);
-        logger.info("Initialized GRPC channel to server {} at {}:{}", serverId, server.host(), server.port());
+        NodeDetails node = nodes.get(nodeId);
+        ManagedChannel channel = ManagedChannelBuilder.forAddress(node.host(), node.port()).usePlaintext().build();
+        channels.put(nodeId, channel);
+        logger.info("Initialized GRPC channel to node {} at {}:{}", nodeId, node.host(), node.port());
     }
 
-    public ManagedChannel getChannel(String serverId) {
-        if (!channels.containsKey(serverId)) {
-            logger.error("Channel for Server ID {} not found.", serverId);
+    public ManagedChannel getChannel(String nodeId) {
+        if (!channels.containsKey(nodeId)) {
+            logger.error("Channel for Node ID {} not found.", nodeId);
             throw new RuntimeException();
         }
-        return channels.get(serverId);
+        return channels.get(nodeId);
     }
 
     public void shutdownChannels() {
         for (Map.Entry<String, ManagedChannel> entry : channels.entrySet()) {
-            String serverId = entry.getKey();
+            String nodeId = entry.getKey();
             ManagedChannel channel = entry.getValue();
             if (channel != null && !channel.isShutdown()) {
                 channel.shutdown();
-                logger.info("Shutdown GRPC channel to server {}", serverId);
+                logger.info("Shutdown GRPC channel to node {}", nodeId);
             }
         }
     }
