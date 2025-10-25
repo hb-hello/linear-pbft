@@ -1,4 +1,4 @@
 package org.example.serialization;
 
-public record ServerDetails(String id, String host, int port) {
+public record ServerDetails(String id, String host, int port) implements NodeDetails {
 }

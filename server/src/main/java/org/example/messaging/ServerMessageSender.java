@@ -25,10 +25,11 @@ public class ServerMessageSender extends MessageSender {
         return active.get();
     }
 
-    public void sendReply(String targetNodeId, MessageServiceOuterClass.ClientReply reply) {
+    public void sendClientReply(String clientId, MessageServiceOuterClass.ClientReply reply) {
         if (!isActive()) {
             logger.info("Node is inactive. Cannot send messages.");
         }
-        signAndSend(targetNodeId, reply, (stub, signed) -> stub.reply((MessageServiceOuterClass.ClientReply) signed));
+        logger.info("Sending ClientReply to client {}: {}", clientId, reply.getResult());
+        signAndSend(clientId, reply, (stub, signed) -> stub.reply((MessageServiceOuterClass.ClientReply) signed));
     }
 }

@@ -30,7 +30,6 @@ public class ServerMessageService extends MessageServiceGrpc.MessageServiceImplB
 
     @Override
     public void request(MessageServiceOuterClass.ClientRequest request, StreamObserver<Empty> responseObserver) {
-        communicationLogger.add(request);
 //        logger.info("MESSAGE: <REQUEST, ({}, {}, {}), {}, {}> received from client {}",
 //                request.getTransaction().getSender(),
 //                request.getTransaction().getReceiver(),
@@ -44,9 +43,10 @@ public class ServerMessageService extends MessageServiceGrpc.MessageServiceImplB
             logger.warn("Invalid signature for client request from client {}", request.getClientId());
             return;
         }
+        communicationLogger.add(request);
         logger.info("Signature verified for client request from client {}", request.getClientId());
         // Handle the client request asynchronously
-//        node.handleClientRequest(request, responseObserver);
+        serverNode.handleClientRequest(request);
     }
 
     @Override

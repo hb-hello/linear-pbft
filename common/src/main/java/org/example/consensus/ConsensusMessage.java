@@ -48,7 +48,9 @@ public class ConsensusMessage<K, V> {
     public boolean canAccept(Message reply) {
         try {
             K id = requestIdExtractor.apply(reply);
-            return Objects.equals(this.requestId, id);
+            boolean canAccept = Objects.equals(this.requestId, id);
+//            System.out.println("Reply with id " + id + "can be accepted for message with id " + this.requestId + " : " + canAccept);
+            return canAccept;
         } catch (RuntimeException ex) {
             // extractor may throw if reply is of unexpected type; treat as non-match
             return false;
@@ -60,6 +62,7 @@ public class ConsensusMessage<K, V> {
         if (!canAccept(reply)) return;
         String responderId = responderIdExtractor.apply(reply);
         if (!respondersSeen.add(responderId)) {
+//            System.out.println("Duplicate reply from responder " + responderId + " for request " + requestId);
             return; // duplicate from same responder
         }
         V value = valueExtractor.apply(reply);
@@ -67,6 +70,7 @@ public class ConsensusMessage<K, V> {
         valueCounts.computeIfAbsent(value, k -> new AtomicInteger()).incrementAndGet();
 
         int count = valueCounts.get(value).get();
+//        System.out.println("Request " + requestId + " received value " + value + " count " + count);
         if (count >= required) {
             future.complete(representative.get(value));
         }

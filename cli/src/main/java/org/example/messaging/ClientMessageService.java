@@ -27,6 +27,7 @@ public class ClientMessageService extends MessageServiceGrpc.MessageServiceImplB
             logger.warn("Invalid signature on ClientReply from {} for client {}", request.getServerId(), request.getClientId());
         }
         // Feed into consensus tracker
+        logger.info("Signature verified for ClientReply from {} for client {}", request.getServerId(), request.getClientId());
         clientNode.onClientReply(request);
 
         // Ack

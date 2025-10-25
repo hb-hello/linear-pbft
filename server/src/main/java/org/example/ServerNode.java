@@ -24,6 +24,9 @@ public class ServerNode extends Node {
 
     private boolean isPrimary;
 
+    private final ServerMessageSender sender;
+    private final ServerMessageReceiver receiver;
+
     public ServerNode(String nodeId) {
         super(nodeId);
         this.sender = new ServerMessageSender(nodeId, commLogger, auth);
@@ -33,6 +36,26 @@ public class ServerNode extends Node {
     public void setActive(boolean active) {
         sender.setActive(active);
         receiver.setActive(active);
+    }
+
+    public void handleClientRequest(MessageServiceOuterClass.ClientRequest request) {
+        String clientId = request.getClientId();
+        long timestamp = request.getTimestamp();
+
+        // initiate PBFT protocol
+        // await consensus
+        // execute operation in request
+        // send ClientReply
+
+        int serverNumber = Integer.parseInt(nodeId.substring(1));
+        MessageServiceOuterClass.ClientReply reply = MessageServiceOuterClass.ClientReply.newBuilder()
+                .setViewNumber(1L)
+                .setTimestamp(timestamp)
+                .setClientId(clientId)
+                .setServerId(nodeId)
+                .setResult(serverNumber % 2 == 1)
+                .build();
+        sender.sendClientReply(clientId, reply);
     }
 
     public static void main(String[] args) {
@@ -50,10 +73,10 @@ public class ServerNode extends Node {
         // Register shutdown hook BEFORE starting
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             logger.info("Shutdown hook triggered");
-            serverNode.shutdown();
+            serverNode.shutdown(serverNode.sender, serverNode.receiver);
         }, nodeId + "-shutdown-hook"));
 
-        serverNode.start();
+        serverNode.start(serverNode.receiver);
     }
 
 }

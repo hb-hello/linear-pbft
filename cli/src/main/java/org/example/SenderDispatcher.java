@@ -41,7 +41,7 @@ public final class SenderDispatcher implements AutoCloseable {
             try {
                 if (event instanceof Transaction tx) {
                     ClientNode clientNode = clients.get(tx.sender());
-                    clientNode.startAsync();
+                    clientNode.start();
                     clientNode.processTransaction(tx.toProtoTransaction());
                 }
             } finally {
