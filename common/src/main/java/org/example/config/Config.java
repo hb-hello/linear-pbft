@@ -18,6 +18,7 @@ public class Config {
 
     // Static configuration fields - accessible from anywhere
     private static Map<String, ServerDetails> servers;
+    private static int serverCount;
     private static Map<String, ClientDetails> clients;
     private static Map<String, Double> clientBalances;
     private static String transactionSetsPath;
@@ -36,13 +37,20 @@ public class Config {
     /**
      * Initialize configuration using custom file paths
      */
+
     public static synchronized void initialize() {
+        initialize("config.properties");
+    }
+
+    public static synchronized void initialize(String propertiesFilePath) {
+        Properties props = loadProperties(propertiesFilePath);
+        initialize(props);
+    }
+
+    public static synchronized void initialize(Properties props) {
         if (initialized) {
             logger.warn("Config already initialized. Reinitializing...");
         }
-
-        // Load properties
-        Properties props = loadProperties("config.properties");
 
         String serverDetailsPath = props.getProperty(
                 "server.details.path",
@@ -76,7 +84,7 @@ public class Config {
 
         maxRetries = Integer.parseInt(props.getProperty(
                 "max.retries",
-                "src/main/resources/transactionSets.csv"
+                "1"
         ));
 
         logger.info("Using paths: server.details.path={}, client.details.path={}",
@@ -84,6 +92,7 @@ public class Config {
 
         logger.info("Loading server details from: {}", serverDetailsPath);
         servers = ConfigLoader.loadServersFromConfig(serverDetailsPath);
+        serverCount = servers.size();
         logger.info("Loaded {} servers", servers.size());
 
         logger.info("Loading client details from: {}", clientDetailsPath);
@@ -197,6 +206,16 @@ public class Config {
         }
 
         return servers.keySet().stream().filter(server -> !Objects.equals(server, serverId)).collect(Collectors.toSet());
+    }
+
+    public static String getServerIdForNumber(int serverNumber) {
+        ensureInitialized();
+        return "n" + serverNumber;
+    }
+
+    public static int getServerCount() {
+        ensureInitialized();
+        return serverCount;
     }
 
     /**
