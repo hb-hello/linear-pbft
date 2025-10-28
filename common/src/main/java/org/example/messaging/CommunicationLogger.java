@@ -26,7 +26,7 @@ public class CommunicationLogger {
 
         switch(request.getOperation().getOpCase()) {
             case TRANSFER:
-                MessageServiceOuterClass.Transaction transfer = request.getOperation().getTransfer();
+                MessageServiceOuterClass.Transfer transfer = request.getOperation().getTransfer();
                 add(String.format("<REQUEST, TRANSFER (%s -> %s, %f), %d, %s> received from client %s",
                         transfer.getSender(),
                         transfer.getReceiver(),

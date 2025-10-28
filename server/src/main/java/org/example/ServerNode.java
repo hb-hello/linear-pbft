@@ -5,6 +5,7 @@ import org.apache.logging.log4j.Logger;
 import org.example.config.Config;
 import org.example.messaging.ServerMessageReceiver;
 import org.example.messaging.ServerMessageSender;
+import org.example.serverstate.ServerState;
 
 public class ServerNode extends Node {
 
@@ -46,7 +47,7 @@ public class ServerNode extends Node {
                 .setTimestamp(timestamp)
                 .setClientId(clientId)
                 .setServerId(nodeId)
-                .setResult(serverNumber % 2 == 1)
+//                .setResult(serverNumber % 2 == 1)
                 .build();
         sender.sendClientReply(clientId, reply);
     }

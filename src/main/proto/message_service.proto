@@ -40,7 +40,7 @@ message CLIResponse {
 
 // Client to server request
 
-message Transaction {
+message Transfer {
   string sender = 1;
   string receiver = 2;
   double amount = 3;
@@ -52,8 +52,15 @@ message BalanceRequest {
 
 message Operation {
   oneof op {
-    Transaction transfer = 1;
+    Transfer transfer = 1;
     BalanceRequest balance_request = 2;
+  }
+}
+
+message OperationResult {
+  oneof op {
+    bool result = 1;
+    double balance = 2;
   }
 }
 
@@ -72,7 +79,7 @@ message ClientReply {
   int64 timestamp = 2;
   string client_id = 3;
   string server_id = 4;
-  bool result = 5;
+  OperationResult result = 5;
   string signer_id = 6;
   bytes signature = 7;
 }

@@ -1,6 +1,7 @@
 package org.example;
 
 import org.example.config.Config;
+import org.example.serverstate.ServerState;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -125,5 +126,44 @@ class ServerStateTest {
         assertTrue(state.snapshotBalances().isEmpty(), "Balances should be cleared");
         assertNull(state.lastReplyTimestamp("client1"), "Reply timestamps should be cleared");
         assertTrue(state.outboundQueue().isEmpty(), "Outbound queue should be cleared");
+    }
+
+    @Test
+    void testNextSeq_incrementsMonotonically() {
+        ServerState state = newState("n1");
+        assertEquals(1L, state.nextSeq(), "First nextSeq should return 1");
+        assertEquals(2L, state.nextSeq(), "Second nextSeq should return 2");
+        assertEquals(3L, state.nextSeq(), "Third nextSeq should return 3");
+        assertEquals(3L, state.snapshotHeader().seq(), "Header seq should reflect latest sequence value");
+    }
+
+    @Test
+    void testMarkExecutedUpTo_isMonotonicMax() {
+        ServerState state = newState("n1");
+        assertEquals(0L, state.snapshotHeader().lastExec(), "Initial lastExec is 0");
+
+        state.markExecutedUpTo(10L);
+        assertEquals(10L, state.snapshotHeader().lastExec(), "lastExec should become 10");
+
+        state.markExecutedUpTo(7L);
+        assertEquals(10L, state.snapshotHeader().lastExec(), "lastExec should not decrease on smaller input");
+
+        state.markExecutedUpTo(15L);
+        assertEquals(15L, state.snapshotHeader().lastExec(), "lastExec should increase to 15 on larger input");
+    }
+
+    @Test
+    void testLastReplyTimestamp_updatesOnlyOnNewer() {
+        ServerState state = newState("n1");
+        assertNull(state.lastReplyTimestamp("client1"), "No reply yet for client");
+
+        state.rememberReply("client1", 100L, "ok1");
+        assertEquals(100L, state.lastReplyTimestamp("client1"), "Last timestamp should be 100");
+
+        state.rememberReply("client1", 50L, "old");
+        assertEquals(100L, state.lastReplyTimestamp("client1"), "Older timestamp should not overwrite");
+
+        state.rememberReply("client1", 150L, "ok2");
+        assertEquals(150L, state.lastReplyTimestamp("client1"), "Newer timestamp should overwrite");
     }
 }

@@ -12,15 +12,15 @@ public record Transaction(String sender, String receiver, double amount) impleme
         return String.format("Transaction(%s -> %s: %.0f)", sender, receiver, amount);
     }
 
-    public MessageServiceOuterClass.Transaction toProtoTransaction() {
-        return MessageServiceOuterClass.Transaction.newBuilder()
+    public MessageServiceOuterClass.Transfer toProtoTransaction() {
+        return MessageServiceOuterClass.Transfer.newBuilder()
                 .setSender(sender)
                 .setReceiver(receiver)
                 .setAmount(amount)
                 .build();
     }
 
-    public static Transaction fromProtoTransaction(MessageServiceOuterClass.Transaction proto) {
+    public static Transaction fromProtoTransaction(MessageServiceOuterClass.Transfer proto) {
         return new Transaction(proto.getSender(), proto.getReceiver(), proto.getAmount());
     }
 }
