@@ -87,9 +87,6 @@ public class Config {
                 "1"
         ));
 
-        logger.info("Using paths: server.details.path={}, client.details.path={}",
-                serverDetailsPath, clientDetailsPath);
-
         logger.info("Loading server details from: {}", serverDetailsPath);
         servers = ConfigLoader.loadServersFromConfig(serverDetailsPath);
         serverCount = servers.size();

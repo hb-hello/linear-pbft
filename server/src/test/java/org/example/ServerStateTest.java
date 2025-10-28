@@ -2,10 +2,12 @@ package org.example;
 
 import org.example.config.Config;
 import org.example.serverstate.ServerState;
+import org.example.MessageServiceOuterClass;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -17,7 +19,7 @@ class ServerStateTest {
 
     @BeforeAll
     static void setup() {
-        // Initialize configuration so Node.computePrimaryServerId() works
+        // Initialize configuration so Node.computePrimaryServerId() works and balances are loaded
         Config.initialize("src/test/resources/config.properties");
         // Use a single-threaded executor whose thread name starts with "state-manager"
         // to satisfy ServerState.onStateThread() and avoid re-entrancy deadlocks in tests.
@@ -37,6 +39,24 @@ class ServerStateTest {
 
     private ServerState newState(String serverId) {
         return new ServerState(serverId, false, stateExec);
+    }
+
+    private MessageServiceOuterClass.Operation transferOp(String from, String to, double amount) {
+        return MessageServiceOuterClass.Operation.newBuilder()
+                .setTransfer(MessageServiceOuterClass.Transfer.newBuilder()
+                        .setSender(from)
+                        .setReceiver(to)
+                        .setAmount(amount)
+                        .build())
+                .build();
+    }
+
+    private MessageServiceOuterClass.Operation balanceOp(String account) {
+        return MessageServiceOuterClass.Operation.newBuilder()
+                .setBalanceRequest(MessageServiceOuterClass.BalanceRequest.newBuilder()
+                        .setAccountId(account)
+                        .build())
+                .build();
     }
 
     @Test
@@ -104,7 +124,9 @@ class ServerStateTest {
         long s2 = state.nextSeq();
         assertTrue(s2 > s1, "Sequence should increase");
         state.markExecutedUpTo(42L);
-        state.applyTransfer("A", "B", 5.0);
+        MessageServiceOuterClass.OperationResult t = state.executeOperation(transferOp("A", "B", 2.0));
+        assertEquals(MessageServiceOuterClass.OperationResult.OpCase.RESULT, t.getOpCase());
+        assertTrue(t.getResult());
         state.rememberReply("client1", 100L, "ok");
         state.appendServerMessage("msg");
         state.enqueueOutbound("out");
@@ -123,7 +145,7 @@ class ServerStateTest {
         assertEquals(0L, header.lastExec(), "Last executed seq should reset to 0");
 
         // Verify data structures cleared
-        assertTrue(state.snapshotBalances().isEmpty(), "Balances should be cleared");
+        assertTrue(((java.util.Map<?,?>) state.snapshotStateMachine()).isEmpty(), "Balances should be cleared");
         assertNull(state.lastReplyTimestamp("client1"), "Reply timestamps should be cleared");
         assertTrue(state.outboundQueue().isEmpty(), "Outbound queue should be cleared");
     }
@@ -165,5 +187,41 @@ class ServerStateTest {
 
         state.rememberReply("client1", 150L, "ok2");
         assertEquals(150L, state.lastReplyTimestamp("client1"), "Newer timestamp should overwrite");
+    }
+
+    @Test
+    void testExecuteOperation_transferAndBalance() {
+        ServerState state = newState("n1");
+
+        // Transfer 5 from A to B
+        MessageServiceOuterClass.OperationResult res = state.executeOperation(transferOp("A", "B", 5.0));
+        assertEquals(MessageServiceOuterClass.OperationResult.OpCase.RESULT, res.getOpCase());
+        assertTrue(res.getResult());
+
+        // Compute expected from configured initial balances
+        Map<String, Double> init = Config.getClientBalances();
+        double a0 = init.get("A");
+        double b0 = init.get("B");
+
+        // Check balances via balance requests
+        MessageServiceOuterClass.OperationResult balB = state.executeOperation(balanceOp("B"));
+        assertEquals(MessageServiceOuterClass.OperationResult.OpCase.BALANCE, balB.getOpCase());
+        assertEquals(b0 + 5.0, balB.getBalance(), 1e-9);
+
+        MessageServiceOuterClass.OperationResult balA = state.executeOperation(balanceOp("A"));
+        assertEquals(MessageServiceOuterClass.OperationResult.OpCase.BALANCE, balA.getOpCase());
+        assertEquals(a0 - 5.0, balA.getBalance(), 1e-9);
+    }
+
+    @Test
+    void testExecuteOperation_missingAccounts_throw() {
+        ServerState state = newState("n1");
+
+        // Unknown sender
+        assertThrows(IllegalArgumentException.class, () -> state.executeOperation(transferOp("Z", "B", 1.0)));
+        // Unknown receiver
+        assertThrows(IllegalArgumentException.class, () -> state.executeOperation(transferOp("A", "Z", 1.0)));
+        // Unknown account balance
+        assertThrows(IllegalArgumentException.class, () -> state.executeOperation(balanceOp("Z")));
     }
 }

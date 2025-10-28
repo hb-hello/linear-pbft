@@ -7,9 +7,9 @@ package org.example.statemachine;
 public sealed interface StateMachineOperation permits TransferOp, BalanceRequestOp {
 
     /** Simple visitor for exhaustive handling without instanceof checks. */
-    interface Visitor<R> {
-        R onTransfer(String sender, String receiver, double amount);
-        R onBalanceRequest(String accountId);
+    interface Visitor<StateMachineOperationResult> {
+        StateMachineOperationResult onTransfer(String sender, String receiver, double amount);
+        StateMachineOperationResult onBalanceRequest(String accountId);
     }
 
     /**

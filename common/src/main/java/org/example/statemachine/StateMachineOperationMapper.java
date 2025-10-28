@@ -3,8 +3,8 @@ package org.example.statemachine;
 /**
  * Utility for converting between sealed StateMachineOperation values and protobuf Operation messages.
  */
-public final class OperationMapper {
-    private OperationMapper() {}
+public final class StateMachineOperationMapper {
+    private StateMachineOperationMapper() {}
 
     public static org.example.MessageServiceOuterClass.Operation toProto(StateMachineOperation op) {
         return switch (op) {
