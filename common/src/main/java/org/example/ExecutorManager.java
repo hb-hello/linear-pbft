@@ -49,6 +49,10 @@ public class ExecutorManager {
 
     }
 
+    public ExecutorService getStateExecutor() {
+        return stateExecutor;
+    }
+
     public void submitStateTransition(Runnable task) {
         stateExecutor.submit(task);
     }

@@ -3,16 +3,8 @@ package org.example;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.example.config.Config;
-import org.example.crypto.MessageAuthenticator;
-import org.example.messaging.CommunicationLogger;
-import org.example.messaging.MessageReceiver;
 import org.example.messaging.ServerMessageReceiver;
 import org.example.messaging.ServerMessageSender;
-
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
 
 public class ServerNode extends Node {
 
@@ -22,15 +14,16 @@ public class ServerNode extends Node {
     private final int OTHER_SERVER_COUNT = 6;
     private final long REQUEST_TIMEOUT_MILLIS = 1000;
 
-    private boolean isPrimary;
-
     private final ServerMessageSender sender;
     private final ServerMessageReceiver receiver;
+
+    private final ServerState state;
 
     public ServerNode(String nodeId) {
         super(nodeId);
         this.sender = new ServerMessageSender(nodeId, commLogger, auth);
         this.receiver = new ServerMessageReceiver(this, commLogger, auth);
+        this.state = new ServerState(nodeId, false, executorManager.getStateExecutor());
     }
 
     public void setActive(boolean active) {

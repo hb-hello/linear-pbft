@@ -27,7 +27,7 @@ public class ClientNode extends Node {
     }
 
     private void updatePrimary(long viewNumber) {
-        this.primaryServerId = "n" + (viewNumber % getServerCount());
+        this.primaryServerId = computePrimaryServerId(viewNumber);
         logger.info("Updated primary server to {} for view {}", primaryServerId, viewNumber);
     }
 
@@ -122,6 +122,7 @@ public class ClientNode extends Node {
         if (!accepted) {
             logger.info("Reply from {} did not match any in-flight request (client={}, ts={})",
                     reply.getServerId(), reply.getClientId(), reply.getTimestamp());
+            return;
         }
         logger.info("Recorded ClientReply with value {} from {} for client {} at ts {}", reply.getResult(), reply.getServerId(), reply.getClientId(), reply.getTimestamp());
     }

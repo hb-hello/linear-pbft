@@ -12,6 +12,9 @@ import org.example.config.Config;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 
+import static org.example.config.Config.getServerCount;
+import static org.example.config.Config.getServerIdForNumber;
+
 public class Node {
 
     private static final Logger logger = LogManager.getLogger(Node.class);
@@ -50,10 +53,12 @@ public class Node {
     }
 
     /**
-     * Current server count from configuration.
+     * Compute primary server id for a given view using a stable ordering of configured servers.
+     * Uses floorMod to handle negative views gracefully.
      */
-    protected int getServerCount() {
-        return Config.getServerIds().size();
+    public static String computePrimaryServerId(long viewNumber) {
+        int serverNumber = (int) Math.floorMod(viewNumber, getServerCount());
+        return getServerIdForNumber(serverNumber);
     }
 
     /**
