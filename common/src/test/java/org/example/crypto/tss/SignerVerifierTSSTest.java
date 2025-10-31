@@ -37,8 +37,9 @@ public class SignerVerifierTSSTest {
         SignerVerifierTSS sv = new SignerVerifierTSS(nodeId, km, Config.getTssDst(), Config.getTssR());
 
         var msg = basePrepare();
-        ByteString partial = sv.partialSign(msg);
-        assertNotEquals(ByteString.EMPTY, partial, "Partial signature should not be empty");
+        byte[] partial = sv.partialSign(msg);
+        assertNotNull(partial, "Partial signature should not be null");
+        assertTrue(partial.length > 0, "Partial signature should not be empty");
 
         boolean ok = sv.verifyPartial(msg, partial, nodeId);
         assertTrue(ok, "Partial signature should verify for signer " + nodeId);
@@ -59,20 +60,21 @@ public class SignerVerifierTSSTest {
 
         var msg = basePrepare();
 
-        Map<Integer, ByteString> partials = new HashMap<>();
+        Map<Integer, byte[]> partials = new HashMap<>();
         for (int i = 1; i <= t; i++) {
             String nodeId = "n" + i;
             ThresholdKeyManager km = new ThresholdKeyManager(nodeId);
             km.load();
             SignerVerifierTSS sv = new SignerVerifierTSS(nodeId, km, Config.getTssDst(), Config.getTssR());
-            ByteString part = sv.partialSign(msg);
+            byte[] part = sv.partialSign(msg);
             int idx = Config.getServerNumberFromId(nodeId);
             partials.put(idx, part);
         }
 
         SignerVerifierTSS collector = new SignerVerifierTSS(aggregatorId, kmAgg, Config.getTssDst(), Config.getTssR());
-        ByteString aggregate = collector.combine(partials);
-        assertNotEquals(ByteString.EMPTY, aggregate, "Aggregate signature should not be empty");
+        byte[] aggregate = collector.combine(partials);
+        assertNotNull(aggregate, "Aggregate signature should not be null");
+        assertTrue(aggregate.length > 0, "Aggregate signature should not be empty");
 
         boolean ok = collector.verifyFinal(msg, aggregate);
         assertTrue(ok, "Aggregate signature should verify with master public key");

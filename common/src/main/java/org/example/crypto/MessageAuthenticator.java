@@ -9,6 +9,7 @@ import org.example.config.Config;
 import org.example.crypto.tss.SignerVerifierTSS;
 import org.example.crypto.tss.ThresholdKeyManager;
 
+import java.util.HashMap;
 import java.util.Map;
 
 public class MessageAuthenticator {
@@ -94,9 +95,9 @@ public class MessageAuthenticator {
         Descriptors.FieldDescriptor fIsAggregated = message.getDescriptorForType().findFieldByName("is_aggregated");
         if (fIsAggregated == null) throw new IllegalStateException("Message missing is_aggregated field");
 
-        ByteString partialSig = tssSignerVerifier.partialSign(message);
+        byte[] partialSig = tssSignerVerifier.partialSign(message);
         return message.toBuilder()
-                .setField(fSig, partialSig)
+                .setField(fSig, ByteString.copyFrom(partialSig))
                 .setField(fId, selfId)
                 .setField(fIsAggregated, false)
                 .build();
@@ -110,7 +111,7 @@ public class MessageAuthenticator {
         if (fId == null) throw new IllegalStateException("Message missing signer_id field");
         String signerId = message.getField(fId) instanceof String id ? id : "";
 
-        ByteString sig = message.getField(fSig) instanceof ByteString bs ? bs : ByteString.EMPTY;
+        byte[] sig = message.getField(fSig) instanceof ByteString bs ? bs.toByteArray() : new byte[0];
 
         Descriptors.FieldDescriptor fIsAggregated = message.getDescriptorForType().findFieldByName("is_aggregated");
 
@@ -126,7 +127,7 @@ public class MessageAuthenticator {
         return tssSignerVerifier.verifyPartial(message, sig, signerId);
     }
 
-    public Message signWithAggregateTss(Message message, Map<Integer, ByteString> partialSigs) {
+    public Message signWithAggregateTss(Message message, Map<String, ByteString> partialSigs) {
         Descriptors.FieldDescriptor fAggSig = message.getDescriptorForType().findFieldByName("signature");
         if (fAggSig == null) throw new IllegalStateException("Message missing signature field");
 
@@ -136,9 +137,13 @@ public class MessageAuthenticator {
         Descriptors.FieldDescriptor fIsAggregated = message.getDescriptorForType().findFieldByName("is_aggregated");
         if (fIsAggregated == null) throw new IllegalStateException("Message missing is_aggregated field");
 
-        ByteString aggregateSig = tssSignerVerifier.combine(partialSigs);
+        Map<Integer, byte[]> parts = new HashMap<>();
+        for (Map.Entry<String, ByteString> e : partialSigs.entrySet()) {
+            parts.put(Config.getServerNumberFromId(e.getKey()), e.getValue().toByteArray());
+        }
+        byte[] aggregateSig = tssSignerVerifier.combine(parts);
         return message.toBuilder()
-                .setField(fAggSig, aggregateSig)
+                .setField(fAggSig, ByteString.copyFrom(aggregateSig))
                 .setField(fId, selfId)
                 .setField(fIsAggregated, true)
                 .build();

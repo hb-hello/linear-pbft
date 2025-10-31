@@ -60,13 +60,12 @@ public class MessageAuthenticatorTssTest {
         MessageAuthenticator authAgg = new MessageAuthenticator(aggregatorId);
         var msg = basePrepare();
 
-        Map<Integer, ByteString> partials = new HashMap<>();
+        Map<String, ByteString> partials = new HashMap<>();
         for (int i = 1; i <= t; i++) {
             String nodeId = "n" + i;
             MessageAuthenticator authNode = new MessageAuthenticator(nodeId);
             PbftService.PrepareMessage partMsg = (PbftService.PrepareMessage) authNode.signWithTSS(msg);
-            int idx = Config.getServerNumberFromId(nodeId);
-            partials.put(idx, partMsg.getSignature());
+            partials.put(nodeId, partMsg.getSignature());
         }
 
         PbftService.PrepareMessage aggregated = (PbftService.PrepareMessage) authAgg.signWithAggregateTss(msg, partials);

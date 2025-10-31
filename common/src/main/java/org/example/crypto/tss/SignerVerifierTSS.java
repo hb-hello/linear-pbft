@@ -1,7 +1,6 @@
 package org.example.crypto.tss;
 
 import com.google.protobuf.Message;
-import com.google.protobuf.ByteString;
 import supranational.blst.*;
 
 import java.math.BigInteger;
@@ -43,21 +42,20 @@ public final class SignerVerifierTSS {
     }
 
     // Prepare: create a partial signature for this node's share
-    public ByteString partialSign(Message msg) {
+    public byte[] partialSign(Message msg) {
         SecretKey sk = km.getPrivateKey();
         byte[] bytes = clearForSigning(msg).toByteArray();
         // Sign with this node's share secret key
         P2 partialSig = new P2();
-        byte[] partialSigBytes = partialSig.hash_to(bytes, dst).sign_with(sk).serialize();
-        return ByteString.copyFrom(partialSigBytes);
+        return partialSig.hash_to(bytes, dst).sign_with(sk).serialize();
     }
 
     // Prepare: verify a partial signature from signerId using its share pubkey (from manifest)
-    public boolean verifyPartial(Message msg, ByteString partialSig, String signerId) {
+    public boolean verifyPartial(Message msg, byte[] partialSig, String signerId) {
         P1_Affine pkShareAffine = km.getPublicKeyShare(signerId);
         if(!pkShareAffine.in_group()) return false;
         byte[] bytes = clearForSigning(msg).toByteArray();
-        P2_Affine partialSigAffine = new P2_Affine(partialSig.toByteArray());
+        P2_Affine partialSigAffine = new P2_Affine(partialSig);
         if(!partialSigAffine.in_group()) return false;
 
         Pairing ctx = new Pairing(true, dst);
@@ -67,10 +65,7 @@ public final class SignerVerifierTSS {
     }
 
     // Commit (collector): combine partials from indices -> partialSig to a single G2 aggregated signature
-    public ByteString combine(Map<Integer, ByteString> indexToPartial) {
-        // pass through to aggregator; it handles Lagrange interpolation internally
-        Map<Integer, byte[]> indexToPartialBytes = indexToPartial.entrySet().stream()
-                .collect(Collectors.toMap(Map.Entry::getKey, e -> e.getValue().toByteArray()));
+    public byte[] combine(Map<Integer, byte[]> indexToPartial) {
 
         // Compute Lagrange coefficients λ_i(0) over Fr for the provided indices.
         Set<Integer> S = indexToPartial.keySet();
@@ -78,7 +73,7 @@ public final class SignerVerifierTSS {
 
         P2 acc = null;
         for (int idx : S) {
-            byte[] sigBytes = indexToPartialBytes.get(idx);
+            byte[] sigBytes = indexToPartial.get(idx);
             if (sigBytes == null || sigBytes.length == 0)
                 throw new IllegalArgumentException("missing partial for index " + idx);
 
@@ -97,7 +92,7 @@ public final class SignerVerifierTSS {
         }
 
         if (acc == null) throw new IllegalStateException("no accumulator");
-        return ByteString.copyFrom(acc.compress()); // compressed G2 aggregate
+        return acc.compress(); // compressed G2 aggregate
     }
 
     // Reduce to Fr and encode as 32-byte big-endian for SecretKey.from_bendian.
@@ -112,11 +107,11 @@ public final class SignerVerifierTSS {
     }
 
     // Commit (recipient): verify the aggregate against the master public key
-    public boolean verifyFinal(Message msg, ByteString aggregateSig) {
+    public boolean verifyFinal(Message msg, byte[] aggregateSig) {
         P1_Affine masterPublicKeyAffine = km.getMasterPublicKey();
         if(!masterPublicKeyAffine.in_group()) return false;
 
-        P2_Affine aggregateSigAffine = new P2_Affine(aggregateSig.toByteArray());
+        P2_Affine aggregateSigAffine = new P2_Affine(aggregateSig);
         if(!aggregateSigAffine.in_group()) return false;
 
         byte[] bytes = clearForSigning(msg).toByteArray();
@@ -128,8 +123,8 @@ public final class SignerVerifierTSS {
     }
 
     // New helper: combine partials and verify against master key. Returns aggregate if valid; throws otherwise.
-//    public ByteString combineAndVerify(Message msg, Map<Integer, ByteString> indexToPartial) {
-//        ByteString agg = combine(indexToPartial);
+//    public byte[] combineAndVerify(Message msg, Map<Integer, byte[]> indexToPartial) {
+//        byte[] agg = combine(indexToPartial);
 //        boolean ok = verifyFinal(msg, agg);
 //        if (!ok) throw new IllegalStateException("Aggregate signature failed verification");
 //        return agg;
