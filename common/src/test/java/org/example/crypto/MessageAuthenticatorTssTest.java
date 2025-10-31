@@ -21,8 +21,8 @@ public class MessageAuthenticatorTssTest {
 
     private static MessageServiceOuterClass.PrepareMessage basePrepare() {
         return MessageServiceOuterClass.PrepareMessage.newBuilder()
-                .setViewNumber("1")
-                .setSequenceNumber("1")
+                .setViewNumber(1L)
+                .setSequenceNumber(1L)
                 .setDigest(ByteString.copyFromUtf8("digest-abc"))
                 .setIsAggregated(false)
                 .build();

@@ -50,7 +50,7 @@ public class MessageAuthenticator {
         );
     }
 
-    private Message clearMessage(Message message) {
+    public Message clearMessage(Message message) {
         Message clearedMessage = message.toBuilder()
                 .clearField(message.getDescriptorForType().findFieldByName("signer_id"))
                 .clearField(message.getDescriptorForType().findFieldByName("signature"))

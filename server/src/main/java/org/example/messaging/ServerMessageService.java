@@ -43,10 +43,11 @@ public class ServerMessageService extends MessageServiceGrpc.MessageServiceImplB
             logger.warn("Invalid signature for client request from client {}", request.getClientId());
             return;
         }
-        communicationLogger.add(request);
+        MessageServiceOuterClass.ClientRequest clearedRequest = (MessageServiceOuterClass.ClientRequest) auth.clearMessage(request);
+        communicationLogger.add(clearedRequest);
         logger.info("Signature verified for client request from client {}", request.getClientId());
-        // Handle the client request asynchronously
-        serverNode.handleClientRequest(request);
+
+        serverNode.handleClientRequest(clearedRequest);
     }
 
     @Override

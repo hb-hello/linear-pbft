@@ -89,8 +89,8 @@ message ClientReply {
 }
 
 message PrePrepareMessage {
-    string view_number = 1;
-    string sequence_number = 2;
+    int64 view_number = 1;
+    int64 sequence_number = 2;
     bytes digest = 3;
     string signer_id = 4;
     bytes signature = 5;
@@ -102,8 +102,8 @@ message PrePrepareRequest {
 }
 
 message PrepareMessage {
-    string view_number = 1;
-    string sequence_number = 2;
+    int64 view_number = 1;
+    int64 sequence_number = 2;
     bytes digest = 3;
     bool is_aggregated = 4;
     string signer_id = 5;

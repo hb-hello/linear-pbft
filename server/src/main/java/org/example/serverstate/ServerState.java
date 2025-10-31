@@ -154,6 +154,22 @@ public final class ServerState {
         return runSync(() -> new Header(viewNumber, primaryServerId, isPrimary, isFaulty, seqNum, lastExecutedSeqNum));
     }
 
+    public boolean isPrimary() {
+        return runSync(() -> isPrimary);
+    }
+
+    public boolean isFaulty() {
+        return runSync(() -> isFaulty);
+    }
+
+    public String getPrimaryServerId() {
+        return runSync(() -> primaryServerId);
+    }
+
+    public long getViewNumber() {
+        return runSync(() -> viewNumber);
+    }
+
     // State-machine operations — example transfer and read-only balance
 
     // Generic execute that delegates to the pluggable state machine

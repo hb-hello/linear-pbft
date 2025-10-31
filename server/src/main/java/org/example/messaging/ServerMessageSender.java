@@ -38,6 +38,12 @@ public class ServerMessageSender extends MessageSender {
         signAndSend(clientId, reply, (stub, signed) -> stub.reply((MessageServiceOuterClass.ClientReply) signed));
     }
 
+    public void forwardClientRequest(String targetServerId, MessageServiceOuterClass.ClientRequest request) {
+        ensureActive();
+        logger.info("Forwarding ClientRequest to server {}: {}", targetServerId, request.getTimestamp());
+        signAndSend(targetServerId, request, (stub, signed) -> stub.request((MessageServiceOuterClass.ClientRequest) signed));
+    }
+
     public void sendPrePrepare(String targetServerId, MessageServiceOuterClass.PrePrepareRequest prePrepare) {
         ensureActive();
         logger.info("Sending PrePrepare to server {}: {}", targetServerId, prePrepare.getPrePrepareMessage().getViewNumber());
