@@ -1,7 +1,7 @@
 package org.example.crypto.tss;
 
 import com.google.protobuf.ByteString;
-import org.example.PbftService;
+import org.example.MessageServiceOuterClass;
 import org.example.config.Config;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -20,8 +20,8 @@ public class SignerVerifierTSSTest {
         Config.initialize("src/test/resources/config.properties");
     }
 
-    private static PbftService.PrepareMessage basePrepare() {
-        return PbftService.PrepareMessage.newBuilder()
+    private static MessageServiceOuterClass.PrepareMessage basePrepare() {
+        return MessageServiceOuterClass.PrepareMessage.newBuilder()
                 .setViewNumber("1")
                 .setSequenceNumber("1")
                 .setDigest(ByteString.copyFromUtf8("digest-abc"))

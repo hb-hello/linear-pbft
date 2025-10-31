@@ -10,6 +10,10 @@ service MessageService {
     rpc Request (ClientRequest) returns (google.protobuf.Empty) {}; // analogous to the invoke operation in PBFT
     rpc Reply (ClientReply) returns (google.protobuf.Empty) {};
 
+    // for PBFT
+    rpc PrePrepare(PrePrepareRequest) returns (google.protobuf.Empty);
+    rpc Prepare(PrepareMessage) returns (google.protobuf.Empty);
+
     // for cli
     rpc SetActiveFlag(ActiveFlag) returns (Acknowledgement);
     rpc GetLog(google.protobuf.Empty) returns (CLIResponse) {};
@@ -82,4 +86,26 @@ message ClientReply {
   OperationResult result = 5;
   string signer_id = 6;
   bytes signature = 7;
+}
+
+message PrePrepareMessage {
+    string view_number = 1;
+    string sequence_number = 2;
+    bytes digest = 3;
+    string signer_id = 4;
+    bytes signature = 5;
+}
+
+message PrePrepareRequest {
+    PrePrepareMessage pre_prepare_message = 1;
+    bytes request = 2;
+}
+
+message PrepareMessage {
+    string view_number = 1;
+    string sequence_number = 2;
+    bytes digest = 3;
+    bool is_aggregated = 4;
+    string signer_id = 5;
+    bytes signature = 6;
 }

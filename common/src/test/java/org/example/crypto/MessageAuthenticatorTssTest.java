@@ -1,7 +1,7 @@
 package org.example.crypto;
 
 import com.google.protobuf.ByteString;
-import org.example.PbftService;
+import org.example.MessageServiceOuterClass;
 import org.example.config.Config;
 import org.example.crypto.tss.ThresholdKeyManager;
 import org.junit.jupiter.api.BeforeAll;
@@ -19,8 +19,8 @@ public class MessageAuthenticatorTssTest {
         Config.initialize("src/test/resources/config.properties");
     }
 
-    private static PbftService.PrepareMessage basePrepare() {
-        return PbftService.PrepareMessage.newBuilder()
+    private static MessageServiceOuterClass.PrepareMessage basePrepare() {
+        return MessageServiceOuterClass.PrepareMessage.newBuilder()
                 .setViewNumber("1")
                 .setSequenceNumber("1")
                 .setDigest(ByteString.copyFromUtf8("digest-abc"))
@@ -35,7 +35,7 @@ public class MessageAuthenticatorTssTest {
         MessageAuthenticator auth = new MessageAuthenticator(nodeId);
 
         var msg = basePrepare();
-        PbftService.PrepareMessage signed = (PbftService.PrepareMessage) auth.signWithTSS(msg);
+        MessageServiceOuterClass.PrepareMessage signed = (MessageServiceOuterClass.PrepareMessage) auth.signWithTSS(msg);
 
         assertEquals(nodeId, signed.getSignerId());
         assertFalse(signed.getIsAggregated());
@@ -64,11 +64,11 @@ public class MessageAuthenticatorTssTest {
         for (int i = 1; i <= t; i++) {
             String nodeId = "n" + i;
             MessageAuthenticator authNode = new MessageAuthenticator(nodeId);
-            PbftService.PrepareMessage partMsg = (PbftService.PrepareMessage) authNode.signWithTSS(msg);
+            MessageServiceOuterClass.PrepareMessage partMsg = (MessageServiceOuterClass.PrepareMessage) authNode.signWithTSS(msg);
             partials.put(nodeId, partMsg.getSignature());
         }
 
-        PbftService.PrepareMessage aggregated = (PbftService.PrepareMessage) authAgg.signWithAggregateTss(msg, partials);
+        MessageServiceOuterClass.PrepareMessage aggregated = (MessageServiceOuterClass.PrepareMessage) authAgg.signWithAggregateTss(msg, partials);
         assertTrue(aggregated.getIsAggregated());
         assertEquals(aggregatorId, aggregated.getSignerId());
         assertFalse(aggregated.getSignature().isEmpty());
