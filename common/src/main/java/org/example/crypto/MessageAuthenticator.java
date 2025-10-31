@@ -1,30 +1,70 @@
 package org.example.crypto;
 
+import com.google.protobuf.ByteString;
+import com.google.protobuf.Descriptors;
 import com.google.protobuf.Message;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.example.config.Config;
+import org.example.crypto.tss.SignerVerifierTSS;
+import org.example.crypto.tss.ThresholdKeyManager;
+
+import java.util.Map;
 
 public class MessageAuthenticator {
 
+    private static final Logger logger = LogManager.getLogger(MessageAuthenticator.class);
+
     private final String selfId;
     private final KeyManager keyManager;
+    private final boolean ed25519Enabled;
+
+    private final ThresholdKeyManager tssKeyManager;
+    private final SignerVerifierTSS tssSignerVerifier;
 
     public MessageAuthenticator(String selfId) {
         this.selfId = selfId;
         this.keyManager = new KeyManager(selfId);
 
-        String privateKeyDir = Config.getPrivateKeyDir();
-        String publicKeyManifestPath = Config.getPublicKeyPath();
-        keyManager.load(privateKeyDir, publicKeyManifestPath);
+        boolean ed25519Ok;
+        try {
+            String privateKeyDir = Config.getPrivateKeyDir();
+            String publicKeyManifestPath = Config.getPublicKeyPath();
+            keyManager.load(privateKeyDir, publicKeyManifestPath);
+            ed25519Ok = true;
+        } catch (Exception e) {
+            ed25519Ok = false;
+            logger.warn("Ed25519 keys not available; Ed25519 sign/verify disabled. Cause: {}", e.getMessage());
+        }
+        this.ed25519Enabled = ed25519Ok;
+
+        //Threshold Signature Scheme init
+        this.tssKeyManager = new ThresholdKeyManager(selfId);
+        tssKeyManager.load();
+        tssSignerVerifier = new SignerVerifierTSS(
+                selfId,
+                tssKeyManager,
+                Config.getTssDst(),
+                Config.getTssR()
+        );
     }
 
     private Message clearMessage(Message message) {
-        return message.toBuilder()
+        Message clearedMessage = message.toBuilder()
                 .clearField(message.getDescriptorForType().findFieldByName("signer_id"))
                 .clearField(message.getDescriptorForType().findFieldByName("signature"))
                 .build();
+
+        if (message.getDescriptorForType().findFieldByName("is_aggregated") != null) {
+            return clearedMessage.toBuilder()
+                    .clearField(message.getDescriptorForType().findFieldByName("is_aggregated"))
+                    .build();
+        }
+        return clearedMessage;
     }
 
     public Message sign(Message message) {
+        if (!ed25519Enabled) throw new IllegalStateException("Ed25519 signing is not enabled (keys not available)");
         byte[] signature = SignerVerifier.signEd25519(clearMessage(message).toByteArray(), keyManager.getPrivateKey());
 
         return message.toBuilder()
@@ -34,6 +74,7 @@ public class MessageAuthenticator {
     }
 
     public boolean verify(Message message) {
+        if (!ed25519Enabled) throw new IllegalStateException("Ed25519 verification is not enabled (keys not available)");
         byte[] signature = message.getField(message.getDescriptorForType().findFieldByName("signature")) instanceof com.google.protobuf.ByteString bs
                 ? bs.toByteArray()
                 : new byte[0];
@@ -43,9 +84,63 @@ public class MessageAuthenticator {
         return SignerVerifier.verifyEd25519(clearMessage(message).toByteArray(), signature, keyManager.getPublicKey(signerId));
     }
 
+    public Message signWithTSS(Message message) {
+        Descriptors.FieldDescriptor fSig = message.getDescriptorForType().findFieldByName("signature");
+        if (fSig == null) throw new IllegalStateException("Message missing signature field");
 
+        Descriptors.FieldDescriptor fId = message.getDescriptorForType().findFieldByName("signer_id");
+        if (fId == null) throw new IllegalStateException("Message missing signer_id field");
 
+        Descriptors.FieldDescriptor fIsAggregated = message.getDescriptorForType().findFieldByName("is_aggregated");
+        if (fIsAggregated == null) throw new IllegalStateException("Message missing is_aggregated field");
 
+        ByteString partialSig = tssSignerVerifier.partialSign(message);
+        return message.toBuilder()
+                .setField(fSig, partialSig)
+                .setField(fId, selfId)
+                .setField(fIsAggregated, false)
+                .build();
+    }
 
+    public boolean verifyWithTss(Message message) {
+        Descriptors.FieldDescriptor fSig = message.getDescriptorForType().findFieldByName("signature");
+        if (fSig == null) throw new IllegalStateException("Message missing signature field");
 
+        Descriptors.FieldDescriptor fId = message.getDescriptorForType().findFieldByName("signer_id");
+        if (fId == null) throw new IllegalStateException("Message missing signer_id field");
+        String signerId = message.getField(fId) instanceof String id ? id : "";
+
+        ByteString sig = message.getField(fSig) instanceof ByteString bs ? bs : ByteString.EMPTY;
+
+        Descriptors.FieldDescriptor fIsAggregated = message.getDescriptorForType().findFieldByName("is_aggregated");
+
+        // if aggregated signature, verify final
+        if (fIsAggregated != null) {
+            boolean isAggregated = message.getField(fIsAggregated) instanceof Boolean b ? b : false;
+            if (isAggregated) {
+                return tssSignerVerifier.verifyFinal(message, sig);
+            }
+        }
+
+        // if partial signature, verify partial
+        return tssSignerVerifier.verifyPartial(message, sig, signerId);
+    }
+
+    public Message signWithAggregateTss(Message message, Map<Integer, ByteString> partialSigs) {
+        Descriptors.FieldDescriptor fAggSig = message.getDescriptorForType().findFieldByName("signature");
+        if (fAggSig == null) throw new IllegalStateException("Message missing signature field");
+
+        Descriptors.FieldDescriptor fId = message.getDescriptorForType().findFieldByName("signer_id");
+        if (fId == null) throw new IllegalStateException("Message missing signer_id field");
+
+        Descriptors.FieldDescriptor fIsAggregated = message.getDescriptorForType().findFieldByName("is_aggregated");
+        if (fIsAggregated == null) throw new IllegalStateException("Message missing is_aggregated field");
+
+        ByteString aggregateSig = tssSignerVerifier.combine(partialSigs);
+        return message.toBuilder()
+                .setField(fAggSig, aggregateSig)
+                .setField(fId, selfId)
+                .setField(fIsAggregated, true)
+                .build();
+    }
 }

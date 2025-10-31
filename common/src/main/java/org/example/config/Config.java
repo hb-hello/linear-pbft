@@ -9,6 +9,7 @@ import org.example.serialization.ServerDetails;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.math.BigInteger;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -24,6 +25,9 @@ public class Config {
     private static String transactionSetsPath;
     private static String privateKeyDir;
     private static String publicKeyPath;
+    // TSS-specific paths
+    private static String tssPrivateKeyDir;
+    private static String tssPublicKeyPath;
 
     private static long clientTimeoutMillis;
     private static int maxRetries;
@@ -75,6 +79,16 @@ public class Config {
         publicKeyPath = props.getProperty(
                 "public.key.path",
                 "keys/manifest.json"
+        );
+
+        // New: TSS-specific key locations
+        tssPrivateKeyDir = props.getProperty(
+                "tss.private.key.dir",
+                "keys/private/tss/"
+        );
+        tssPublicKeyPath = props.getProperty(
+                "tss.public.key.path",
+                "keys/public/tss/manifest.json"
         );
 
         clientTimeoutMillis = Long.parseLong(props.getProperty(
@@ -206,8 +220,15 @@ public class Config {
     }
 
     public static String getServerIdForNumber(int serverNumber) {
-        ensureInitialized();
         return "n" + serverNumber;
+    }
+
+    public static int getServerNumberFromId(String serverId) {
+        if (serverId.startsWith("n")) {
+            return Integer.parseInt(serverId.substring(1));
+        } else {
+            throw new IllegalArgumentException("Invalid server ID format: " + serverId);
+        }
     }
 
     public static int getServerCount() {
@@ -273,6 +294,16 @@ public class Config {
         return publicKeyPath;
     }
 
+    public static String getTssPrivateKeyDir() {
+        ensureInitialized();
+        return tssPrivateKeyDir;
+    }
+
+    public static String getTssPublicKeyPath() {
+        ensureInitialized();
+        return tssPublicKeyPath;
+    }
+
     public static int getMaxRetries() {
         ensureInitialized();
         return maxRetries;
@@ -297,5 +328,14 @@ public class Config {
     public static boolean hasClient(String clientId) {
         ensureInitialized();
         return clientBalances.containsKey(clientId);
+    }
+
+    public static String getTssDst() {
+        return "BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_NUL_";
+    }
+
+    public static BigInteger getTssR() {
+        return new BigInteger(
+                "73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001", 16);
     }
 }
