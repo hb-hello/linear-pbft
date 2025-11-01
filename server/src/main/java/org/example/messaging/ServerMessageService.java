@@ -43,11 +43,12 @@ public class ServerMessageService extends MessageServiceGrpc.MessageServiceImplB
             logger.warn("Invalid signature for client request from client {}", request.getClientId());
             return;
         }
-        MessageServiceOuterClass.ClientRequest clearedRequest = (MessageServiceOuterClass.ClientRequest) auth.clearMessage(request);
-        communicationLogger.add(clearedRequest);
+        // do not clear the message of signature, as server needs to access the signature later
+//        MessageServiceOuterClass.ClientRequest clearedRequest = (MessageServiceOuterClass.ClientRequest) auth.removeSignature(request);
+        communicationLogger.add(request);
         logger.info("Signature verified for client request from client {}", request.getClientId());
 
-        serverNode.handleClientRequest(clearedRequest);
+        serverNode.handleClientRequest(request);
     }
 
     @Override
@@ -56,6 +57,26 @@ public class ServerMessageService extends MessageServiceGrpc.MessageServiceImplB
         MessageServiceOuterClass.Acknowledgement ack = MessageServiceOuterClass.Acknowledgement.newBuilder().setStatus(true).build();
         responseObserver.onNext(ack);
         responseObserver.onCompleted();
+    }
+
+    @Override
+    public void prePrepare(MessageServiceOuterClass.PrePrepareRequest request, StreamObserver<Empty> responseObserver) {
+
+        if (!auth.verify(request)) {
+            logger.warn("Invalid signature for Pre-Prepare message from server {}", request.getPrePrepareMessage().getSignerId());
+            return;
+        }
+
+        communicationLogger.add(
+                String.format("MESSAGE: <PRE-PREPARE, <%d, %d>> received from server %s",
+                        request.getPrePrepareMessage().getViewNumber(),
+                        request.getPrePrepareMessage().getSequenceNumber(),
+                        request.getPrePrepareMessage().getSignerId()
+                )
+        );
+
+        MessageServiceOuterClass.PrePrepareRequest clearedRequest = (MessageServiceOuterClass.PrePrepareRequest) auth.removeSignature(request);
+        serverNode.handlePrePrepare(clearedRequest);
     }
 
 //    @Override

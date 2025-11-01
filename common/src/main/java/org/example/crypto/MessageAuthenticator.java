@@ -50,7 +50,7 @@ public class MessageAuthenticator {
         );
     }
 
-    public Message clearMessage(Message message) {
+    public Message removeSignature(Message message) {
         Message clearedMessage = message.toBuilder()
                 .clearField(message.getDescriptorForType().findFieldByName("signer_id"))
                 .clearField(message.getDescriptorForType().findFieldByName("signature"))
@@ -65,24 +65,11 @@ public class MessageAuthenticator {
     }
 
     public Message sign(Message message) {
-        if (!ed25519Enabled) throw new IllegalStateException("Ed25519 signing is not enabled (keys not available)");
-        byte[] signature = SignerVerifier.signEd25519(clearMessage(message).toByteArray(), keyManager.getPrivateKey());
-
-        return message.toBuilder()
-                .setField(message.getDescriptorForType().findFieldByName("signer_id"), selfId)
-                .setField(message.getDescriptorForType().findFieldByName("signature"), com.google.protobuf.ByteString.copyFrom(signature))
-                .build();
+        return signWithTSS(message);
     }
 
     public boolean verify(Message message) {
-        if (!ed25519Enabled) throw new IllegalStateException("Ed25519 verification is not enabled (keys not available)");
-        byte[] signature = message.getField(message.getDescriptorForType().findFieldByName("signature")) instanceof com.google.protobuf.ByteString bs
-                ? bs.toByteArray()
-                : new byte[0];
-        String signerId = message.getField(message.getDescriptorForType().findFieldByName("signer_id")) instanceof String id
-                ? id
-                : "";
-        return SignerVerifier.verifyEd25519(clearMessage(message).toByteArray(), signature, keyManager.getPublicKey(signerId));
+        return verifyWithTss(message);
     }
 
     public Message signWithTSS(Message message) {

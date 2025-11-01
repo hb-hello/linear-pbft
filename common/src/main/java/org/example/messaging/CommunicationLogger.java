@@ -1,5 +1,7 @@
 package org.example.messaging;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.example.MessageServiceOuterClass;
 
 import java.util.ArrayList;
@@ -10,6 +12,8 @@ import static java.lang.System.currentTimeMillis;
 
 public class CommunicationLogger {
 
+    private static final Logger logger = LogManager.getLogger(CommunicationLogger.class);
+
     private final List<String> logs;
 
     public CommunicationLogger() {
@@ -18,6 +22,7 @@ public class CommunicationLogger {
 
     public void add(String message) {
         //add ISO timestamp to start of message
+        logger.info(message);
         String messageWithTimestamp = String.format("[%tFT%<tT.%<tLZ] - %s", currentTimeMillis(), message);
         logs.add(messageWithTimestamp);
     }

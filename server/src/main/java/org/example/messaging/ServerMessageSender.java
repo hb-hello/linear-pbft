@@ -11,25 +11,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class ServerMessageSender extends MessageSender {
 
     private static final Logger logger = LogManager.getLogger(ServerMessageSender.class);
-    private final AtomicBoolean active;
 
     public ServerMessageSender(String serverId, CommunicationLogger commLogger, MessageAuthenticator auth) {
         super(serverId, commLogger, auth);
-        this.active = new AtomicBoolean(true);
-    }
-
-    public void setActive(boolean active) {
-        this.active.set(active);
-    }
-
-    public boolean isActive() {
-        return active.get();
-    }
-
-    private void ensureActive() {
-        if (!isActive()) {
-            throw new IllegalStateException("Node is inactive. Cannot send messages.");
-        }
     }
 
     public void sendClientReply(String clientId, MessageServiceOuterClass.ClientReply reply) {
@@ -42,11 +26,5 @@ public class ServerMessageSender extends MessageSender {
         ensureActive();
         logger.info("Forwarding ClientRequest to server {}: {}", targetServerId, request.getTimestamp());
         signAndSend(targetServerId, request, (stub, signed) -> stub.request((MessageServiceOuterClass.ClientRequest) signed));
-    }
-
-    public void sendPrePrepare(String targetServerId, MessageServiceOuterClass.PrePrepareRequest prePrepare) {
-        ensureActive();
-        logger.info("Sending PrePrepare to server {}: {}", targetServerId, prePrepare.getPrePrepareMessage().getViewNumber());
-        signWithTSSAndSend(targetServerId, prePrepare, (stub, signed) -> stub.prePrepare((MessageServiceOuterClass.PrePrepareRequest) signed));
     }
 }

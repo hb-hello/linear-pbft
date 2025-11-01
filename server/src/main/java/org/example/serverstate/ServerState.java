@@ -1,11 +1,12 @@
 package org.example.serverstate;
 
+import com.google.protobuf.Message;
 import org.example.MessageServiceOuterClass;
 import org.example.config.Config;
+import org.example.messaging.ServerMessage;
 import org.example.statemachine.BankStateMachine;
 
 import java.util.HashMap;
-import java.util.Map;
 import java.util.concurrent.*;
 
 import static org.example.Node.computePrimaryServerId;
@@ -29,6 +30,8 @@ public final class ServerState {
     private boolean isFaulty;
     private long seqNum;
     private long lastExecutedSeqNum;
+    private long lowWatermark = 0L;
+    private long highWatermark = 100L;
 
     // State machine: balances
     private StateMachine stateMachine;
@@ -39,7 +42,7 @@ public final class ServerState {
 
     // Checkpoints and message history
     private final ConcurrentLinkedQueue<Object> checkpoints = new ConcurrentLinkedQueue<>();
-    private final ConcurrentLinkedQueue<Object> serverMessages = new ConcurrentLinkedQueue<>();
+    private final ServerMessageTracker serverMessageTracker = new ServerMessageTracker();
 
     // Output buffer drained by networking; enqueue from actor for ordering with state updates
     private final BlockingQueue<Object> outputBuffer = new LinkedBlockingQueue<>();
@@ -140,18 +143,10 @@ public final class ServerState {
         });
     }
 
-    public long nextSeq() {
-        return runSync(() -> ++seqNum);
-    }
-
     public void markExecutedUpTo(long executedSeqNum) {
         runSync(() -> {
             lastExecutedSeqNum = Math.max(lastExecutedSeqNum, executedSeqNum);
         });
-    }
-
-    public Header snapshotHeader() {
-        return runSync(() -> new Header(viewNumber, primaryServerId, isPrimary, isFaulty, seqNum, lastExecutedSeqNum));
     }
 
     public boolean isPrimary() {
@@ -168,6 +163,26 @@ public final class ServerState {
 
     public long getViewNumber() {
         return runSync(() -> viewNumber);
+    }
+
+    public long nextSeq() {
+        return runSync(() -> ++seqNum);
+    }
+
+    public boolean seqNumBetweenWatermarks(long sequenceNumber) {
+        return runSync(() -> sequenceNumber > lowWatermark && sequenceNumber <= highWatermark);
+    }
+
+    public long getLowWatermark() {
+        return lowWatermark;
+    }
+
+    public long getHighWatermark() {
+        return highWatermark;
+    }
+
+    public Header snapshotHeader() {
+        return runSync(() -> new Header(viewNumber, primaryServerId, isPrimary, isFaulty, seqNum, lastExecutedSeqNum));
     }
 
     // State-machine operations — example transfer and read-only balance
@@ -204,10 +219,42 @@ public final class ServerState {
 
     // Logs and buffers
 
-    public void appendServerMessage(Object msg) {
+    public void appendServerMessage(ServerMessage msg) {
         runSync(() -> {
-            serverMessages.add(msg);
+            serverMessageTracker.append(msg);
         });
+    }
+
+    public void appendServerMessage(Message msg) {
+        appendServerMessage(ServerMessage.wrap(msg));
+    }
+
+    public ServerMessageTracker getServerMessageTracker() {
+        return serverMessageTracker;
+    }
+
+    public ServerMessage findPrePrepare(long viewNumber, long sequenceNumber) {
+        return runSync(() -> serverMessageTracker.findPrePrepare(viewNumber, sequenceNumber));
+    }
+
+    public boolean hasPrePrepare(long viewNumber, long sequenceNumber) {
+        return runSync(() -> serverMessageTracker.findPrePrepare(viewNumber, sequenceNumber) != null);
+    }
+
+    public ServerMessage findPrepare(long viewNumber, long sequenceNumber) {
+        return runSync(() -> serverMessageTracker.findPrepare(viewNumber, sequenceNumber));
+    }
+
+    public boolean hasPrepare(long viewNumber, long sequenceNumber) {
+        return runSync(() -> serverMessageTracker.findPrepare(viewNumber, sequenceNumber) != null);
+    }
+
+    public ServerMessage findCommit(long viewNumber, long sequenceNumber) {
+        return runSync(() -> serverMessageTracker.findCommit(viewNumber, sequenceNumber));
+    }
+
+    public boolean hasCommit(long viewNumber, long sequenceNumber) {
+        return runSync(() -> serverMessageTracker.findCommit(viewNumber, sequenceNumber) != null);
     }
 
     public void enqueueOutbound(Object msg) {
@@ -246,7 +293,7 @@ public final class ServerState {
             replyTimestamps.clear();
             replyCache.clear();
             checkpoints.clear();
-            serverMessages.clear();
+            serverMessageTracker.clear();
             outputBuffer.clear();
             return null;
         });

@@ -3,12 +3,12 @@ package org.example;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.example.config.Config;
+import org.example.consensus.handlers.PrePrepareHandler;
+import org.example.consensus.senders.PrePrepareSender;
 import org.example.messaging.ServerMessageReceiver;
 import org.example.messaging.ServerMessageSender;
+import org.example.messaging.ServerMessage;
 import org.example.serverstate.ServerState;
-
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 
 public class ServerNode extends Node {
 
@@ -21,28 +21,26 @@ public class ServerNode extends Node {
     private final ServerMessageSender sender;
     private final ServerMessageReceiver receiver;
 
+    private final PrePrepareSender prePrepareSender;
+
+    private final PrePrepareHandler prePrepareHandler;
+
     private final ServerState state;
 
-    public ServerNode(String nodeId) {
-        super(nodeId);
-        this.sender = new ServerMessageSender(nodeId, commLogger, auth);
+    public ServerNode(String serverId) {
+        super(serverId);
+        this.sender = new ServerMessageSender(serverId, commLogger, auth);
         this.receiver = new ServerMessageReceiver(this, commLogger, auth);
-        this.state = new ServerState(nodeId, false, executorManager.getStateExecutor());
+        this.state = new ServerState(serverId, false, executorManager.getStateExecutor());
+
+        this.prePrepareSender = new PrePrepareSender(serverId, state, commLogger, auth);
+
+        this.prePrepareHandler = new PrePrepareHandler(state, auth);
     }
 
     public void setActive(boolean active) {
         sender.setActive(active);
         receiver.setActive(active);
-    }
-
-    private byte[] generateRequestDigest(MessageServiceOuterClass.ClientRequest request) {
-        try {
-            MessageDigest md = MessageDigest.getInstance("MD5");
-            return md.digest(request.toByteArray());
-        } catch (NoSuchAlgorithmException e) {
-            logger.error("MD5 algorithm not available", e);
-            throw new RuntimeException("MD5 algorithm not available", e);
-        }
     }
 
     public void handleClientRequest(MessageServiceOuterClass.ClientRequest request) {
@@ -57,7 +55,7 @@ public class ServerNode extends Node {
                 return;
             }
 
-            state.appendServerMessage(request);
+            state.appendServerMessage(ServerMessage.wrap(request));
             // refresh liveness timer?
 
             if (!state.isPrimary()) {
@@ -66,11 +64,11 @@ public class ServerNode extends Node {
                 sender.forwardClientRequest(primaryServerId, request);
                 return;
             }
-
-            attemptPrePrepare(request);
         });
 
         // initiate PBFT protocol
+        prePrepareSender.attemptPrePrepare(request);
+
         // await consensus
         // execute operation in request
         // send ClientReply
@@ -86,31 +84,10 @@ public class ServerNode extends Node {
         sender.sendClientReply(clientId, reply);
     }
 
-    private void attemptPrePrepare(MessageServiceOuterClass.ClientRequest request) {
-
-        // Compute digest of the client request
-        byte[] digest = generateRequestDigest(request);
-
-        // Create PrePrepare message with digest
-        MessageServiceOuterClass.PrePrepareMessage prePrepareMessage = MessageServiceOuterClass.PrePrepareMessage.newBuilder()
-                .setViewNumber(state.getViewNumber())
-                .setSequenceNumber(1L)
-                .setDigest(com.google.protobuf.ByteString.copyFrom(digest))
-                .build();
-
-        // Include raw request bytes in the PrePrepareRequest
-        MessageServiceOuterClass.PrePrepareRequest prePrepareRequest = MessageServiceOuterClass.PrePrepareRequest.newBuilder()
-                .setPrePrepareMessage(prePrepareMessage)
-                .setRequest(com.google.protobuf.ByteString.copyFrom(request.toByteArray()))
-                .build();
-
-        // Broadcast PrePrepare to other servers
-        for (int i = 1; i <= OTHER_SERVER_COUNT; i++) {
-            String targetServerId = "S" + i;
-            if (!targetServerId.equals(nodeId)) {
-                sender.sendPrePrepare(targetServerId, prePrepareRequest);
-            }
-        }
+    public void handlePrePrepare(MessageServiceOuterClass.PrePrepareRequest prePrepareRequest) {
+        executorManager.submitMessageProcessing(() -> {
+            prePrepareHandler.handle(prePrepareRequest);
+        });
     }
 
     public static void main(String[] args) {

@@ -1,8 +1,8 @@
 package org.example;
 
 import org.example.config.Config;
+import org.example.messaging.ServerMessage;
 import org.example.serverstate.ServerState;
-import org.example.MessageServiceOuterClass;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -128,7 +128,12 @@ class ServerStateTest {
         assertEquals(MessageServiceOuterClass.OperationResult.OpCase.RESULT, t.getOpCase());
         assertTrue(t.getResult());
         state.rememberReply("client1", 100L, "ok");
-        state.appendServerMessage("msg");
+        // Create a dummy ClientRequest to wrap
+        MessageServiceOuterClass.ClientRequest dummyRequest = MessageServiceOuterClass.ClientRequest.newBuilder()
+                .setClientId("test")
+                .setTimestamp(123L)
+                .build();
+        state.appendServerMessage(ServerMessage.wrap(dummyRequest));
         state.enqueueOutbound("out");
         assertEquals(1, state.outboundQueue().size(), "Outbound queue should have an item before reset");
 
@@ -223,5 +228,54 @@ class ServerStateTest {
         assertThrows(IllegalArgumentException.class, () -> state.executeOperation(transferOp("A", "Z", 1.0)));
         // Unknown account balance
         assertThrows(IllegalArgumentException.class, () -> state.executeOperation(balanceOp("Z")));
+    }
+
+    @Test
+    void testGetLowWatermark_returnsInitialValue() {
+        ServerState state = newState("n1");
+        assertEquals(0L, state.getLowWatermark(), "Low watermark should initially be 0");
+    }
+
+    @Test
+    void testGetHighWatermark_returnsInitialValue() {
+        ServerState state = newState("n1");
+        assertEquals(100L, state.getHighWatermark(), "High watermark should initially be 100");
+    }
+
+    @Test
+    void testSeqNumBetweenWatermarks_withinRange() {
+        ServerState state = newState("n1");
+
+        // Test sequences within the watermark range (0, 100]
+        assertTrue(state.seqNumBetweenWatermarks(1L), "Sequence 1 should be between watermarks");
+        assertTrue(state.seqNumBetweenWatermarks(50L), "Sequence 50 should be between watermarks");
+        assertTrue(state.seqNumBetweenWatermarks(100L), "Sequence 100 should be between watermarks (inclusive high)");
+    }
+
+    @Test
+    void testSeqNumBetweenWatermarks_outsideRange() {
+        ServerState state = newState("n1");
+
+        // Test sequences outside the watermark range
+        assertFalse(state.seqNumBetweenWatermarks(0L), "Sequence 0 should not be between watermarks (exclusive low)");
+        assertFalse(state.seqNumBetweenWatermarks(-1L), "Negative sequence should not be between watermarks");
+        assertFalse(state.seqNumBetweenWatermarks(101L), "Sequence 101 should not be between watermarks (above high)");
+        assertFalse(state.seqNumBetweenWatermarks(1000L), "Sequence 1000 should not be between watermarks");
+    }
+
+    @Test
+    void testSeqNumBetweenWatermarks_boundaryConditions() {
+        ServerState state = newState("n1");
+
+        // Test exact boundary values
+        // Low watermark is exclusive (0 < seq)
+        assertFalse(state.seqNumBetweenWatermarks(0L), "Sequence equal to low watermark should be excluded");
+
+        // High watermark is inclusive (seq <= 100)
+        assertTrue(state.seqNumBetweenWatermarks(100L), "Sequence equal to high watermark should be included");
+
+        // Just outside boundaries
+        assertTrue(state.seqNumBetweenWatermarks(1L), "Sequence 1 (low + 1) should be included");
+        assertFalse(state.seqNumBetweenWatermarks(101L), "Sequence 101 (high + 1) should be excluded");
     }
 }
