@@ -70,8 +70,12 @@ public final class ThresholdArtifacts {
 
         int seq = 1;
         for (String name : nodeNames) {
-            Integer idx = Config.getServerNumberFromId(name);
-            if (idx == null) {
+            Integer idx;
+            try {
+                // Try to get server number if it's a server ID (e.g., "n1", "n2")
+                idx = Config.getServerNumberFromId(name);
+            } catch (IllegalArgumentException e) {
+                // If it's not a server ID (e.g., client IDs like "A", "B"), use sequential number
                 idx = seq;
             }
             nodeIndex.put(name, idx);

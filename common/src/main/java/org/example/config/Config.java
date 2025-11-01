@@ -263,6 +263,14 @@ public class Config {
     }
 
     /**
+     * Get all client IDs
+     */
+    public static Set<String> getClientIds() {
+        ensureInitialized();
+        return clients.keySet();
+    }
+
+    /**
      * Get all client balances
      */
     public static Map<String, Double> getClientBalances() {

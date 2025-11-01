@@ -79,10 +79,16 @@ public class MessageAuthenticator {
         Descriptors.FieldDescriptor fId = message.getDescriptorForType().findFieldByName("signer_id");
         if (fId == null) throw new IllegalStateException("Message missing signer_id field");
 
-        Descriptors.FieldDescriptor fIsAggregated = message.getDescriptorForType().findFieldByName("is_aggregated");
-        if (fIsAggregated == null) throw new IllegalStateException("Message missing is_aggregated field");
-
         byte[] partialSig = tssSignerVerifier.partialSign(message);
+
+        Descriptors.FieldDescriptor fIsAggregated = message.getDescriptorForType().findFieldByName("is_aggregated");
+        if (fIsAggregated == null) {
+            return message.toBuilder()
+                    .setField(fSig, ByteString.copyFrom(partialSig))
+                    .setField(fId, selfId)
+                    .build();
+        }
+
         return message.toBuilder()
                 .setField(fSig, ByteString.copyFrom(partialSig))
                 .setField(fId, selfId)
