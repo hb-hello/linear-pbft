@@ -1,22 +1,24 @@
 package org.example;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import org.example.statemachine.StateMachineOperation;
+import org.example.statemachine.TransferOp;
+
+import java.util.*;
 
 /**
- * @param setNumber       Transaction set identifier
- * @param transactionEvents    List of events which could be Transaction or LeaderFailure
- * @param activeNodesList List of active nodes for the transaction set
+ * Represents a transaction set with operations, node configuration, and attack information.
+ * Note: Uses mutable collections for transactionEvents, activeNodesList, and byzantineNodes.
+ * The attackDescription is stored in a single-element array to allow mutation.
  */
-public record TransactionSet(int setNumber, List<TransactionEvent> transactionEvents,
-                             List<String> activeNodesList) {
+public record TransactionSet(int setNumber, List<StateMachineOperation> transactionEvents,
+                             List<String> activeNodesList, Set<String> byzantineNodes,
+                             String[] attackDescriptionHolder) {
+
     public TransactionSet(int setNumber) {
-        this(setNumber, new ArrayList<>(), new ArrayList<>());
+        this(setNumber, new ArrayList<>(), new ArrayList<>(), new HashSet<>(), new String[]{""});
     }
 
-    public void addTransactionEvent(TransactionEvent event) {
+    public void addTransactionEvent(StateMachineOperation event) {
         this.transactionEvents.add(event);
     }
 
@@ -24,71 +26,66 @@ public record TransactionSet(int setNumber, List<TransactionEvent> transactionEv
         this.activeNodesList.addAll(nodes);
     }
 
-    /**
-     * Groups transactions by sender ID, with each phase separated by LeaderFailure events.
-     *
-     * Returns a list where each element represents a phase:
-     * - Phase 0: transactions before the first LeaderFailure
-     * - Phase 1: transactions between first and second LeaderFailure
-     * - Phase N: transactions after the Nth LeaderFailure
-     *
-     * Within each phase, transactions are grouped by sender ID.
-     *
-     * Example for Set 9:
-     *   Events: [Transaction(C->H:3), LeaderFailure(), Transaction(E->D:1),
-     *            Transaction(G->I:2), LeaderFailure(), Transaction(A->J:1)]
-     *
-     *   Result: [
-     *     Phase 0: {C: [Transaction(C->H:3)]},
-     *     Phase 1: {E: [Transaction(E->D:1)], G: [Transaction(G->I:2)]},
-     *     Phase 2: {A: [Transaction(A->J:1)]}
-     *   ]
-     *
-     * @return List of phases, where each phase is a HashMap of sender -> List of Transactions
-     */
-    public List<Map<String, List<Transaction>>> groupTransactionsBySenderPerPhase() {
-        List<Map<String, List<Transaction>>> phases = new ArrayList<>();
-        Map<String, List<Transaction>> currentPhase = new HashMap<>();
+    public void setByzantineNodes(Set<String> nodes) {
+        this.byzantineNodes.clear();
+        this.byzantineNodes.addAll(nodes);
+    }
 
-        for (TransactionEvent event : transactionEvents) {
-            if (event instanceof Transaction) {
-                Transaction tx = (Transaction) event;
-                String sender = tx.sender();
+    public void setAttackDescription(String description) {
+        this.attackDescriptionHolder[0] = description;
+    }
 
-                // Add transaction to current phase, grouped by sender
-                currentPhase.computeIfAbsent(sender, k -> new ArrayList<>()).add(tx);
-            }
-        }
-
-        // Don't forget the last phase (after the last LeaderFailure or if no LeaderFailures exist)
-        if (!currentPhase.isEmpty()) {
-            phases.add(currentPhase);
-        }
-
-        return phases;
+    public String getAttackDescription() {
+        return this.attackDescriptionHolder[0];
     }
 
     /**
-     * Utility method to print the phase structure for debugging
+     * Groups transfer operations by sender ID.
+     * Only processes TransferOp operations, ignoring BalanceRequestOp.
+     *
+     * Returns a map where each key is a sender ID and the value is a list of their transfer operations.
+     *
+     * Example:
+     *   Events: [TransferOp(C->H:3), TransferOp(E->D:1), TransferOp(C->I:2)]
+     *
+     *   Result: {
+     *     C: [TransferOp(C->H:3), TransferOp(C->I:2)],
+     *     E: [TransferOp(E->D:1)]
+     *   }
+     *
+     * @return HashMap of sender -> List of TransferOp operations
      */
-    public void printPhases() {
-        List<Map<String, List<Transaction>>> phases = groupTransactionsBySenderPerPhase();
+    public Map<String, List<TransferOp>> groupTransactionsBySender() {
+        Map<String, List<TransferOp>> groupedBySender = new HashMap<>();
+
+        for (StateMachineOperation operation : transactionEvents) {
+            if (operation instanceof TransferOp transferOp) {
+                String sender = transferOp.sender();
+
+                // Add transfer operation to the sender's list
+                groupedBySender.computeIfAbsent(sender, k -> new ArrayList<>()).add(transferOp);
+            }
+        }
+
+        return groupedBySender;
+    }
+
+    /**
+     * Utility method to print the grouped operations structure for debugging
+     */
+    public void printGroups() {
+        Map<String, List<TransferOp>> groupedBySender = groupTransactionsBySender();
 
         System.out.println("TransactionSet #" + setNumber + " [Nodes: " + activeNodesList + "]");
-        System.out.println("Total Phases: " + phases.size());
+        System.out.println("Total senders: " + groupedBySender.size());
 
-        for (int phaseIndex = 0; phaseIndex < phases.size(); phaseIndex++) {
-            Map<String, List<Transaction>> phase = phases.get(phaseIndex);
-            System.out.println("\n  Phase " + phaseIndex + ":");
+        for (Map.Entry<String, List<TransferOp>> entry : groupedBySender.entrySet()) {
+            String sender = entry.getKey();
+            List<TransferOp> transfers = entry.getValue();
+            System.out.println("\n  Sender '" + sender + "': " + transfers.size() + " transfer(s)");
 
-            for (Map.Entry<String, List<Transaction>> entry : phase.entrySet()) {
-                String sender = entry.getKey();
-                List<Transaction> transactions = entry.getValue();
-                System.out.println("    Sender '" + sender + "': " + transactions.size() + " transaction(s)");
-
-                for (Transaction tx : transactions) {
-                    System.out.println("      - " + tx);
-                }
+            for (TransferOp transfer : transfers) {
+                System.out.println("      - " + transfer);
             }
         }
     }

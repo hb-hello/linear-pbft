@@ -3,27 +3,33 @@ package org.example;
 import com.opencsv.CSVReader;
 import com.opencsv.CSVReaderBuilder;
 import com.opencsv.exceptions.CsvValidationException;
+import org.example.statemachine.BalanceRequestOp;
+import org.example.statemachine.StateMachineOperation;
+import org.example.statemachine.TransferOp;
 
 import java.io.FileNotFoundException;
 import java.io.FileReader;
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
+import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class TransactionSetLoader {
 
-    // Regex to extract (Item1, Item2, Value) from the Transaction string
-    private static final Pattern TRANSACTION_PATTERN = Pattern.compile("\\(([A-Z]+),\\s*([A-Z]+),\\s*(\\d+)\\)");
+    // Regex to extract (Item1, Item2, Value) from the Transfer string: (A, B, 1)
+    private static final Pattern TRANSFER_PATTERN = Pattern.compile("\\(([A-Z]+),\\s*([A-Z]+),\\s*(\\d+)\\)");
+    // Regex to extract (Item) from the BalanceRequest string: (A)
+    private static final Pattern BALANCE_REQUEST_PATTERN = Pattern.compile("\\(([A-Z]+)\\)");
     private static final String LEADER_FAILURE_MARKER = "LF";
 
     /**
      * Load transaction sets from CSV file using openCSV
-     * CSV format: Set Number, Transactions, Live Nodes
-     * - Each set contains a sequence of Transaction and LeaderFailure events
-     * - Events are stored in the order they appear in the CSV
+     * CSV format: Set Number, Transactions, Live Nodes, Byzantine Nodes, Attack
+     * - Column 0: Set Number (only present on first row of each set)
+     * - Column 1: StateMachineOperation - TransferOp (A, B, 1) or BalanceRequestOp (A)
+     * - Column 2: Live Nodes - List of active node IDs [n1, n2, n3, ...]
+     * - Column 3: Byzantine Nodes - List of byzantine node IDs [n2] or []
+     * - Column 4: Attack - Attack description string or []
      */
     public static HashMap<Integer, TransactionSet> loadTransactionSets(String filePath) {
 
@@ -43,7 +49,6 @@ public class TransactionSetLoader {
                     throw new IllegalStateException("Encountered row without a set number being established");
                 }
 
-
                 // Get or create the TransactionSet
                 TransactionSet transactionSet;
                 if (transactionSets.containsKey(currentSetNumber)) {
@@ -55,23 +60,30 @@ public class TransactionSetLoader {
 
                 // Column 2: Live Nodes (only present on first row of each set)
                 if (nextLine.length > 2 && nextLine[2] != null && !nextLine[2].trim().isEmpty()) {
-                    transactionSet.addActiveNodesList(parseNodes(nextLine[2]));
+                    transactionSet.addActiveNodesList(parseNodesList(nextLine[2]));
                 }
 
-                // Column 1: Transactions or Leader Failure marker
-                if (nextLine.length > 1 && nextLine[1] != null && !nextLine[1].trim().isEmpty()) {
-                    String transactionStr = nextLine[1].trim();
+                // Column 3: Byzantine Nodes (only present on first row of each set)
+                if (nextLine.length > 3 && nextLine[3] != null && !nextLine[3].trim().isEmpty()) {
+                    transactionSet.setByzantineNodes(parseByzantineNodes(nextLine[3]));
+                }
 
-                    // Check if this is a leader failure event
-                    if (LEADER_FAILURE_MARKER.equals(transactionStr)) {
-                    } else {
-                        // Parse and add actual transaction
-                        Transaction transaction = parseTransaction(transactionStr);
-                        transactionSet.addTransactionEvent(transaction);
+                // Column 4: Attack description (only present on first row of each set)
+                if (nextLine.length > 4 && nextLine[4] != null && !nextLine[4].trim().isEmpty()) {
+                    transactionSet.setAttackDescription(nextLine[4].trim());
+                }
+
+                // Column 1: StateMachineOperation (TransferOp or BalanceRequestOp)
+                if (nextLine.length > 1 && nextLine[1] != null && !nextLine[1].trim().isEmpty()) {
+                    String operationStr = nextLine[1].trim();
+
+                    // Skip leader failure markers
+                    if (!LEADER_FAILURE_MARKER.equals(operationStr)) {
+                        // Parse and add the operation
+                        StateMachineOperation operation = parseOperation(operationStr);
+                        transactionSet.addTransactionEvent(operation);
                     }
                 }
-
-//                transactionSet.addTransactionEvent(parseTransaction(nextLine[1]));
             }
 
             return transactionSets;
@@ -85,24 +97,42 @@ public class TransactionSetLoader {
     }
 
 
-    // Parses the transaction string into the gRPC-like Transaction object
-    private static Transaction parseTransaction(String transactionStr) {
-        Matcher matcher = TRANSACTION_PATTERN.matcher(transactionStr);
-        if (matcher.find()) {
-            String sender = matcher.group(1);
-            String receiver = matcher.group(2);
-            // The value is parsed as a double for the 'amount' field
-            double amount = Double.parseDouble(matcher.group(3));
-
-            return new Transaction(sender, receiver, amount);
+    /**
+     * Parses an operation string into a StateMachineOperation.
+     * - TransferOp format: (A, B, 1) - 3 elements
+     * - BalanceRequestOp format: (A) - 1 element
+     */
+    private static StateMachineOperation parseOperation(String operationStr) {
+        // Try to match TransferOp pattern first (3 elements)
+        Matcher transferMatcher = TRANSFER_PATTERN.matcher(operationStr);
+        if (transferMatcher.find()) {
+            String sender = transferMatcher.group(1);
+            String receiver = transferMatcher.group(2);
+            double amount = Double.parseDouble(transferMatcher.group(3));
+            return new TransferOp(sender, receiver, amount);
         }
-        throw new IllegalArgumentException("Invalid transaction format: " + transactionStr);
+
+        // Try to match BalanceRequestOp pattern (1 element)
+        Matcher balanceMatcher = BALANCE_REQUEST_PATTERN.matcher(operationStr);
+        if (balanceMatcher.find()) {
+            String accountId = balanceMatcher.group(1);
+            return new BalanceRequestOp(accountId);
+        }
+
+        throw new IllegalArgumentException("Invalid operation format: " + operationStr);
     }
 
-    // Parses the comma-separated list of nodes
-    private static List<String> parseNodes(String liveNodesStr) {
+    /**
+     * Parses a comma-separated list of nodes from a string like "[n1, n2, n3]"
+     */
+    private static List<String> parseNodesList(String nodesStr) {
         // Remove square brackets if present
-        String cleanedStr = liveNodesStr.replaceAll("[\\[\\]]", "");
+        String cleanedStr = nodesStr.replaceAll("[\\[\\]]", "");
+
+        // Handle empty list
+        if (cleanedStr.trim().isEmpty()) {
+            return new ArrayList<>();
+        }
 
         // Split by comma
         String[] nodesArray = cleanedStr.split(",");
@@ -117,6 +147,34 @@ public class TransactionSetLoader {
         }
 
         return nodesList;
+    }
+
+    /**
+     * Parses byzantine nodes from a string like "[n2]" or "[]"
+     * Returns a Set of byzantine node IDs.
+     */
+    private static Set<String> parseByzantineNodes(String byzantineNodesStr) {
+        // Remove square brackets if present
+        String cleanedStr = byzantineNodesStr.replaceAll("[\\[\\]]", "");
+
+        // Handle empty list
+        if (cleanedStr.trim().isEmpty()) {
+            return new HashSet<>();
+        }
+
+        // Split by comma
+        String[] nodesArray = cleanedStr.split(",");
+
+        Set<String> byzantineNodes = new HashSet<>();
+        for (String node : nodesArray) {
+            String trimmedNode = node.trim();
+            // Only add non-empty nodes
+            if (!trimmedNode.isEmpty()) {
+                byzantineNodes.add(trimmedNode);
+            }
+        }
+
+        return byzantineNodes;
     }
 
 }

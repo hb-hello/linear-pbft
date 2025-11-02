@@ -1,6 +1,7 @@
 package org.example;
 
 import org.example.config.Config;
+import org.example.statemachine.StateMachineOperation;
 
 import java.util.List;
 import java.util.Scanner;
@@ -52,12 +53,21 @@ public final class CliApp {
                             break;
                         }
                         TransactionSet set = sets.get(next++);
+
+                        // Display detailed set information
                         System.out.printf("Scheduling set #%d%n", set.setNumber());
+                        System.out.printf("  Operations: %d%n", set.transactionEvents().size());
+                        System.out.printf("  Active servers: %s%n", set.activeNodesList());
+                        System.out.printf("  Byzantine nodes: %s%n",
+                            set.byzantineNodes().isEmpty() ? "[]" : set.byzantineNodes());
+                        System.out.printf("  Attack: %s%n",
+                            set.getAttackDescription().isEmpty() || set.getAttackDescription().equals("[]")
+                                ? "None" : set.getAttackDescription());
 
                         ServerManager.activateServers(set);
 
                         // Submit events exactly in file order
-                        for (TransactionEvent ev : set.transactionEvents()) {
+                        for (StateMachineOperation ev : set.transactionEvents()) {
                             dispatcher.submit(ev);
                         }
                         System.out.println("Set scheduled; processing continues in background.");

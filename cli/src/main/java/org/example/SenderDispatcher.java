@@ -1,5 +1,9 @@
 package org.example;
 
+import org.example.statemachine.BalanceRequestOp;
+import org.example.statemachine.StateMachineOperation;
+import org.example.statemachine.TransferOp;
+
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -32,18 +36,28 @@ public final class SenderDispatcher implements AutoCloseable {
         });
     }
 
-    public void submit(TransactionEvent event) {
-        String sender = (event instanceof Transaction tx) ? tx.sender() : LF_SENDER;
-        ExecutorService ex = executors.get(sender);
-        if (ex == null) throw new IllegalStateException("No executor for sender " + sender);
+    public void submit(StateMachineOperation operation) {
+        // Determine the client ID based on operation type
+        String clientId;
+        if (operation instanceof TransferOp transferOp) {
+            clientId = transferOp.sender();
+        } else if (operation instanceof BalanceRequestOp balanceRequestOp) {
+            clientId = balanceRequestOp.accountId();
+        } else {
+            // Unknown operation type, skip
+            return;
+        }
+
+        ExecutorService ex = executors.get(clientId);
+        if (ex == null) throw new IllegalStateException("No executor for client " + clientId);
         submitted.incrementAndGet();
         ex.execute(() -> {
             try {
-                if (event instanceof Transaction tx) {
-                    ClientNode clientNode = clients.get(tx.sender());
-                    clientNode.start();
-                    clientNode.processTransaction(tx.toProtoTransaction());
-                }
+                ClientNode clientNode = clients.get(clientId);
+                clientNode.start();
+
+                // Process the operation directly
+                clientNode.processOperation(operation);
             } finally {
                 completed.incrementAndGet();
             }
