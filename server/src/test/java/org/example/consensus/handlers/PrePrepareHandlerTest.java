@@ -106,10 +106,10 @@ class PrePrepareHandlerTest {
         // Act: Handle the PrePrepare
         handler.handle(prePrepareRequest);
 
-        // Assert: PrePrepare should be added to state
+        // Assert: PrePrepare should be added to state (as PrePrepareMessage, not PrePrepareRequest)
         ServerMessage foundMessage = state.findPrePrepare(1L, 1L);
         assertNotNull(foundMessage, "PrePrepare should be added to state");
-        assertEquals("PrePrepareRequest", foundMessage.getMessageType());
+        assertEquals("PrePrepareMessage", foundMessage.getMessageType());
         assertEquals(1L, foundMessage.getViewNumber().orElse(-1L));
         assertEquals(1L, foundMessage.getSequenceNumber().orElse(-1L));
     }

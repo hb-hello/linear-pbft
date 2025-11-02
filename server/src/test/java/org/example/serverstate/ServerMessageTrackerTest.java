@@ -19,7 +19,7 @@ class ServerMessageTrackerTest {
 
     @Test
     void testAppendAndFindPrePrepare() {
-        // Create a PrePrepareRequest message
+        // Create a PrePrepareMessage
         MessageServiceOuterClass.PrePrepareMessage prePrepareMsg = MessageServiceOuterClass.PrePrepareMessage.newBuilder()
                 .setViewNumber(1)
                 .setSequenceNumber(10)
@@ -28,18 +28,13 @@ class ServerMessageTrackerTest {
                 .setSignature(ByteString.copyFromUtf8("sig1"))
                 .build();
 
-        MessageServiceOuterClass.PrePrepareRequest prePrepareRequest = MessageServiceOuterClass.PrePrepareRequest.newBuilder()
-                .setPrePrepareMessage(prePrepareMsg)
-                .setRequest(ByteString.copyFromUtf8("request1"))
-                .build();
-
-        ServerMessage serverMsg = ServerMessage.wrap(prePrepareRequest);
+        ServerMessage serverMsg = ServerMessage.wrap(prePrepareMsg);
         tracker.append(serverMsg);
 
         // Find the message
         ServerMessage found = tracker.findPrePrepare(1, 10);
         assertNotNull(found, "Should find the PrePrepare message");
-        assertEquals("PrePrepareRequest", found.getMessageType());
+        assertEquals("PrePrepareMessage", found.getMessageType());
         assertEquals(1L, found.getViewNumber().orElse(-1L));
         assertEquals(10L, found.getSequenceNumber().orElse(-1L));
     }
@@ -159,11 +154,7 @@ class ServerMessageTrackerTest {
                 .setSignerId("n1")
                 .setSignature(ByteString.copyFromUtf8("sig"))
                 .build();
-        MessageServiceOuterClass.PrePrepareRequest prePrepareRequest = MessageServiceOuterClass.PrePrepareRequest.newBuilder()
-                .setPrePrepareMessage(prePrepareMsg)
-                .setRequest(ByteString.copyFromUtf8("request"))
-                .build();
-        tracker.append(ServerMessage.wrap(prePrepareRequest));
+        tracker.append(ServerMessage.wrap(prePrepareMsg));
 
         // Add Prepare with same view/seq
         MessageServiceOuterClass.PrepareMessage prepareMsg = MessageServiceOuterClass.PrepareMessage.newBuilder()
@@ -182,7 +173,7 @@ class ServerMessageTrackerTest {
 
         assertNotNull(foundPrePrepare);
         assertNotNull(foundPrepare);
-        assertEquals("PrePrepareRequest", foundPrePrepare.getMessageType());
+        assertEquals("PrePrepareMessage", foundPrePrepare.getMessageType());
         assertEquals("PrepareMessage", foundPrepare.getMessageType());
     }
 
@@ -222,13 +213,8 @@ class ServerMessageTrackerTest {
                 .setSignature(ByteString.copyFromUtf8("sig1"))
                 .build();
 
-        MessageServiceOuterClass.PrePrepareRequest prePrepareRequest1 = MessageServiceOuterClass.PrePrepareRequest.newBuilder()
-                .setPrePrepareMessage(prePrepareMsg1)
-                .setRequest(ByteString.copyFromUtf8("request1"))
-                .build();
-
         // Add first message
-        tracker.append(ServerMessage.wrap(prePrepareRequest1));
+        tracker.append(ServerMessage.wrap(prePrepareMsg1));
         assertEquals(1, tracker.size(), "First message should be added");
 
         // Create second PrePrepare message with same view/seq but different content
@@ -240,13 +226,8 @@ class ServerMessageTrackerTest {
                 .setSignature(ByteString.copyFromUtf8("sig2-different"))
                 .build();
 
-        MessageServiceOuterClass.PrePrepareRequest prePrepareRequest2 = MessageServiceOuterClass.PrePrepareRequest.newBuilder()
-                .setPrePrepareMessage(prePrepareMsg2)
-                .setRequest(ByteString.copyFromUtf8("request2-different"))
-                .build();
-
         // Try to add second message (duplicate)
-        tracker.append(ServerMessage.wrap(prePrepareRequest2));
+        tracker.append(ServerMessage.wrap(prePrepareMsg2));
 
         // Size should still be 1 (duplicate was ignored)
         assertEquals(1, tracker.size(), "Duplicate message should not be added");
@@ -301,12 +282,7 @@ class ServerMessageTrackerTest {
                 .setSignature(ByteString.copyFromUtf8("sig"))
                 .build();
 
-        MessageServiceOuterClass.PrePrepareRequest prePrepareRequest = MessageServiceOuterClass.PrePrepareRequest.newBuilder()
-                .setPrePrepareMessage(prePrepareMsg)
-                .setRequest(ByteString.copyFromUtf8("request"))
-                .build();
-
-        tracker.append(ServerMessage.wrap(prePrepareRequest));
+        tracker.append(ServerMessage.wrap(prePrepareMsg));
 
         // Add Prepare with same view=1, seq=10
         MessageServiceOuterClass.PrepareMessage prepareMsg = MessageServiceOuterClass.PrepareMessage.newBuilder()

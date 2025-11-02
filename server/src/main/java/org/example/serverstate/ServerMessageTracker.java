@@ -80,7 +80,7 @@ public class ServerMessageTracker {
      * @return The PrePrepare message if found, null otherwise
      */
     public ServerMessage findPrePrepare(long viewNumber, long sequenceNumber) {
-        return findMessage("PrePrepareRequest", viewNumber, sequenceNumber);
+        return findMessage("PrePrepareMessage", viewNumber, sequenceNumber);
     }
 
     /**

@@ -26,14 +26,16 @@ public class ServerManager {
     }
 
     public static void activateServers(TransactionSet transactionSet) {
-//        Deactivate all servers
-        for (String serverId : Config.getServers().keySet()) {
-            setServerNodeActiveFlag(serverId, false);
-        }
-
 //        Activate required servers based on transaction set
         for (String serverIdToActivate : transactionSet.activeNodesList()) {
             setServerNodeActiveFlag(serverIdToActivate, true);
+        }
+    }
+
+    public static void deactivateServers(TransactionSet transactionSet) {
+//        Deactivate servers that were active in the transaction set
+        for (String serverId : transactionSet.activeNodesList()) {
+            setServerNodeActiveFlag(serverId, false);
         }
     }
 
