@@ -60,6 +60,7 @@ public class Node {
      */
     public static String computePrimaryServerId(long viewNumber) {
         int serverNumber = (int) Math.floorMod(viewNumber, getServerCount());
+        serverNumber = serverNumber <= 0 ? serverNumber + getServerCount() : serverNumber;
         return getServerIdForNumber(serverNumber);
     }
 

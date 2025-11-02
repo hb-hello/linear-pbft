@@ -5,6 +5,7 @@ import org.apache.logging.log4j.Logger;
 import org.example.config.Config;
 import org.example.consensus.handlers.PrePrepareHandler;
 import org.example.consensus.senders.PrePrepareSender;
+import org.example.consensus.senders.PrepareSender;
 import org.example.messaging.ServerMessageReceiver;
 import org.example.messaging.ServerMessageSender;
 import org.example.messaging.ServerMessage;
@@ -22,6 +23,7 @@ public class ServerNode extends Node {
     private final ServerMessageReceiver receiver;
 
     private final PrePrepareSender prePrepareSender;
+    private final PrepareSender prepareSender;
 
     private final PrePrepareHandler prePrepareHandler;
 
@@ -34,8 +36,9 @@ public class ServerNode extends Node {
         this.state = new ServerState(serverId, false, executorManager.getStateExecutor());
 
         this.prePrepareSender = new PrePrepareSender(serverId, state, commLogger, auth);
+        this.prepareSender = new PrepareSender(serverId, state, commLogger, auth);
 
-        this.prePrepareHandler = new PrePrepareHandler(state, auth);
+        this.prePrepareHandler = new PrePrepareHandler(state, auth, prepareSender);
     }
 
     public void setActive(boolean active) {

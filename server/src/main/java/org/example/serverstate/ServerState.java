@@ -30,7 +30,7 @@ public final class ServerState {
     private String serverId;
     private long viewNumber;
     private String primaryServerId;
-    private boolean isPrimary;
+    private String collectorServerId;
     private boolean isFaulty;
     private long seqNum;
     private long lastExecutedSeqNum;
@@ -52,7 +52,7 @@ public final class ServerState {
     private final BlockingQueue<Object> outputBuffer = new LinkedBlockingQueue<>();
 
     // DTO for safe read snapshots
-    public record Header(long view, String primary, boolean primaryFlag, boolean faulty, long seq, long lastExec) {
+    public record Header(long view, String primary, boolean faulty, long seq, long lastExec) {
     }
 
     public ServerState(String serverId, boolean isFaulty, ExecutorService stateExec) {
@@ -62,7 +62,7 @@ public final class ServerState {
             this.serverId = serverId;
             this.viewNumber = INITIAL_VIEW;
             this.primaryServerId = computePrimaryServerId(viewNumber);
-            this.isPrimary = primaryServerId.equals(serverId);
+            this.collectorServerId = computeCollectorServerId(viewNumber);
             this.isFaulty = isFaulty;
             this.seqNum = 0L;
             this.lastExecutedSeqNum = 0L;
@@ -135,11 +135,16 @@ public final class ServerState {
 
     // Header operations — blocking by default
 
+    public String computeCollectorServerId(long viewNumber) {
+//        return computePrimaryServerId(viewNumber + 1);
+        return primaryServerId;
+    }
+
     public void setViewAndPrimary(long newView) {
         runSync(() -> {
             viewNumber = newView;
             primaryServerId = computePrimaryServerId(newView);
-            isPrimary = primaryServerId.equals(serverId);
+            collectorServerId = computeCollectorServerId(newView);
             return null;
         });
     }
@@ -157,15 +162,23 @@ public final class ServerState {
     }
 
     public boolean isPrimary() {
-        return runSync(() -> isPrimary);
+        return runSync(() -> primaryServerId.equals(serverId));
     }
 
     public boolean isFaulty() {
         return runSync(() -> isFaulty);
     }
 
+    public boolean isCollector() {
+        return runSync(() -> collectorServerId.equals(serverId));
+    }
+
     public String getPrimaryServerId() {
         return runSync(() -> primaryServerId);
+    }
+
+    public String getCollectorServerId() {
+        return runSync(() -> collectorServerId);
     }
 
     public long getViewNumber() {
@@ -189,7 +202,7 @@ public final class ServerState {
     }
 
     public Header snapshotHeader() {
-        return runSync(() -> new Header(viewNumber, primaryServerId, isPrimary, isFaulty, seqNum, lastExecutedSeqNum));
+        return runSync(() -> new Header(viewNumber, primaryServerId, isFaulty, seqNum, lastExecutedSeqNum));
     }
 
     // State-machine operations — example transfer and read-only balance
@@ -294,8 +307,8 @@ public final class ServerState {
     public void reset() {
         runSync(() -> {
             viewNumber = INITIAL_VIEW;
-            primaryServerId = computePrimaryServerId(INITIAL_VIEW);
-            isPrimary = primaryServerId.equals(serverId);
+            primaryServerId = computePrimaryServerId(viewNumber);
+            collectorServerId = computeCollectorServerId(viewNumber);
             isFaulty = false;
             seqNum = 0L;
             lastExecutedSeqNum = 0L;

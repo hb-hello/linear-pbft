@@ -66,6 +66,19 @@ public interface ServerMessage {
     }
 
     /**
+     * Extract a value suitable for comparing messages to determine consensus.
+     * Returns the digest as a byte array if present in the message, otherwise returns an empty array.
+     * This is useful for grouping messages by their digest value in consensus tracking.
+     *
+     * @return byte array containing the digest, or empty array if no digest is present
+     */
+    default byte[] getValueForComparison() {
+        return getDigest()
+                .map(ByteString::toByteArray)
+                .orElse(new byte[0]);
+    }
+
+    /**
      * Calculate a unique index for this message based on its type and relevant fields.
      * <ul>
      *   <li>For messages with view_number and sequence_number (PrePrepare, Prepare, Commit, Checkpoint, ViewChange):
@@ -178,8 +191,6 @@ public interface ServerMessage {
         // First, try to find the field directly in the message
         Descriptors.FieldDescriptor field = descriptor.findFieldByName(fieldName);
         if (field != null) {
-            // For proto3 primitive fields, hasField() doesn't work reliably
-            // Instead, just check if the field exists and get its value
             Object value = msg.getField(field);
             if (value != null) {
                 return Optional.of((Long) value);
@@ -187,7 +198,6 @@ public interface ServerMessage {
         }
 
         // For PrePrepareRequest, check the nested pre_prepare_message field
-        // Note: For MESSAGE type fields, hasField() DOES work correctly in proto3
         Descriptors.FieldDescriptor nestedField = descriptor.findFieldByName("pre_prepare_message");
         if (nestedField != null && nestedField.getType() == Descriptors.FieldDescriptor.Type.MESSAGE
                 && msg.hasField(nestedField)) {
@@ -225,7 +235,6 @@ public interface ServerMessage {
         }
 
         // For PrePrepareRequest, check the nested pre_prepare_message field
-        // Note: For MESSAGE type fields, hasField() DOES work correctly in proto3
         Descriptors.FieldDescriptor nestedField = descriptor.findFieldByName("pre_prepare_message");
         if (nestedField != null && nestedField.getType() == Descriptors.FieldDescriptor.Type.MESSAGE
                 && msg.hasField(nestedField)) {
@@ -263,7 +272,6 @@ public interface ServerMessage {
         }
 
         // For PrePrepareRequest, check the nested pre_prepare_message field
-        // Note: For MESSAGE type fields, hasField() DOES work correctly in proto3
         Descriptors.FieldDescriptor nestedField = descriptor.findFieldByName("pre_prepare_message");
         if (nestedField != null && nestedField.getType() == Descriptors.FieldDescriptor.Type.MESSAGE
                 && msg.hasField(nestedField)) {

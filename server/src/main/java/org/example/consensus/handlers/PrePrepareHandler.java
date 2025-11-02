@@ -5,6 +5,7 @@ import com.google.protobuf.Message;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.example.MessageServiceOuterClass;
+import org.example.consensus.senders.PrepareSender;
 import org.example.crypto.MessageAuthenticator;
 import org.example.messaging.ServerMessage;
 import org.example.serverstate.ServerState;
@@ -16,10 +17,12 @@ public class PrePrepareHandler {
 
     private final ServerState state;
     private final MessageAuthenticator auth;
+    private final PrepareSender prepareSender;
 
-    public PrePrepareHandler(ServerState state, MessageAuthenticator auth) {
+    public PrePrepareHandler(ServerState state, MessageAuthenticator auth, PrepareSender prepareSender) {
         this.state = state;
         this.auth = auth;
+        this.prepareSender = prepareSender;
     }
 
     private boolean verifyClientRequest(MessageServiceOuterClass.ClientRequest request) {
@@ -42,7 +45,7 @@ public class PrePrepareHandler {
         if (alreadyLoggedPrePrepare != null && alreadyLoggedPrePrepare.getDigest().isPresent()) {
             logger.info("Duplicate PrePrepare detected for view {} seq {}",
                     prePrepareMessage.getViewNumber(), prePrepareMessage.getSequenceNumber());
-            // do not accept if digest differs, can accept if digest is same as state takes care of de-dupe
+            // do not accept if digest differs, can accept if digest is same as state, this takes care of de-dupe
             return alreadyLoggedPrePrepare.getDigest().get().equals(prePrepareMessage.getDigest());
         }
 
@@ -79,8 +82,8 @@ public class PrePrepareHandler {
 
         state.appendServerMessage(prePrepareRequest.getRequest());
 
-        // attempt prepare
-
+        prepareSender.sendPrepare(state.getViewNumber(), prePrepareMessage.getSequenceNumber(),
+                prePrepareMessage.getDigest().toByteArray());
     }
 
 

@@ -87,12 +87,7 @@ public class ServerMessageService extends MessageServiceGrpc.MessageServiceImplB
                 )
         );
 
-        MessageServiceOuterClass.PrePrepareMessage clearedMessage = (MessageServiceOuterClass.PrePrepareMessage) auth.removeSignature(prePrepareMessage);
-        MessageServiceOuterClass.PrePrepareRequest clearedRequest = MessageServiceOuterClass.PrePrepareRequest.newBuilder()
-                .setPrePrepareMessage(clearedMessage)
-                .setRequest(request.getRequest())
-                .build();
-        serverNode.handlePrePrepare(clearedRequest);
+        serverNode.handlePrePrepare(request);
     }
 
 //    @Override

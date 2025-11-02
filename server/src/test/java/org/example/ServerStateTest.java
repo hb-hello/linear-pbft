@@ -69,7 +69,7 @@ class ServerStateTest {
         ServerState.Header header = state.snapshotHeader();
         assertEquals(newView, header.view(), "View number should be updated");
         assertEquals(Node.computePrimaryServerId(newView), header.primary(), "Primary server id should match computed value");
-        assertFalse(header.primaryFlag(), "n1 should not be primary for view 5 with default config");
+        assertFalse(state.isPrimary(), "n1 should not be primary for view 5 with default config");
     }
 
     @Test
@@ -81,7 +81,7 @@ class ServerStateTest {
 
         ServerState.Header header = state.snapshotHeader();
         assertEquals("n1", header.primary(), "Primary should be n1 for view 1");
-        assertTrue(header.primaryFlag(), "Primary flag should be true when this server is primary");
+        assertTrue(state.isPrimary(), "Primary flag should be true when this server is primary");
     }
 
     @Test
@@ -94,7 +94,7 @@ class ServerStateTest {
         ServerState.Header header = state.snapshotHeader();
         assertEquals(newView, header.view(), "Negative view should be stored as-is");
         assertEquals(Node.computePrimaryServerId(newView), header.primary(), "Primary should be computed using floorMod for negative views");
-        assertFalse(header.primaryFlag(), "n1 should not be primary for view -1 with default config");
+        assertFalse(state.isPrimary(), "n1 should not be primary for view -1 with default config");
     }
 
     @Test
@@ -144,7 +144,7 @@ class ServerStateTest {
         ServerState.Header header = state.snapshotHeader();
         assertEquals(1L, header.view(), "View should reset to 0");
         assertEquals(Node.computePrimaryServerId(1L), header.primary(), "Primary should be recomputed for view 0");
-        assertTrue(header.primaryFlag(), "n1 should be primary at view 1 with default config");
+        assertTrue(state.isPrimary(), "n1 should be primary at view 1 with default config");
         assertFalse(header.faulty(), "Faulty flag should reset to false");
         assertEquals(0L, header.seq(), "Sequence should reset to 0");
         assertEquals(0L, header.lastExec(), "Last executed seq should reset to 0");

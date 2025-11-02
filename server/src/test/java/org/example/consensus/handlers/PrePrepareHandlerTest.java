@@ -4,6 +4,7 @@ import com.google.protobuf.ByteString;
 import com.google.protobuf.Message;
 import org.example.MessageServiceOuterClass;
 import org.example.config.Config;
+import org.example.consensus.senders.PrepareSender;
 import org.example.crypto.MessageAuthenticator;
 import org.example.messaging.MessageUtil;
 import org.example.messaging.ServerMessage;
@@ -47,7 +48,9 @@ class PrePrepareHandlerTest {
         state = new ServerState("n1", false, stateExec);
         // Use a mock authenticator that always returns true
         MessageAuthenticator mockAuth = new MockMessageAuthenticator();
-        handler = new PrePrepareHandler(state, mockAuth);
+        // Create a mock PrepareSender that doesn't actually send messages
+        PrepareSender mockPrepareSender = new MockPrepareSender(state);
+        handler = new PrePrepareHandler(state, mockAuth, mockPrepareSender);
     }
 
     private byte[] computeDigest(MessageServiceOuterClass.ClientRequest request) {
@@ -215,7 +218,8 @@ class PrePrepareHandlerTest {
     void testHandle_invalidClientRequestSignature_doesNotAddToState() {
         // Use a mock authenticator that rejects signatures
         MessageAuthenticator rejectingAuth = new MockMessageAuthenticator(false);
-        PrePrepareHandler rejectingHandler = new PrePrepareHandler(state, rejectingAuth);
+        PrepareSender mockPrepareSender = new MockPrepareSender(state);
+        PrePrepareHandler rejectingHandler = new PrePrepareHandler(state, rejectingAuth, mockPrepareSender);
 
         MessageServiceOuterClass.ClientRequest clientRequest = createClientRequest("client1", 1000L);
         MessageServiceOuterClass.PrePrepareRequest prePrepareRequest =
@@ -271,6 +275,21 @@ class PrePrepareHandlerTest {
         @Override
         public boolean verifyWithTss(Message message) {
             return verifyResult;
+        }
+    }
+
+    /**
+     * Mock PrepareSender for testing.
+     * Does not actually send messages, just a no-op implementation.
+     */
+    private static class MockPrepareSender extends PrepareSender {
+        public MockPrepareSender(ServerState state) {
+            super("n1", state, null, null);
+        }
+
+        @Override
+        public void sendPrepare(long viewNumber, long sequenceNumber, byte[] digest) {
+            // No-op: don't actually send anything in tests
         }
     }
 }
