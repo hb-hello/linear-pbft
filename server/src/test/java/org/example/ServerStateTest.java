@@ -142,16 +142,16 @@ class ServerStateTest {
 
         // Verify header reset
         ServerState.Header header = state.snapshotHeader();
-        assertEquals(0L, header.view(), "View should reset to 0");
-        assertEquals(Node.computePrimaryServerId(0L), header.primary(), "Primary should be recomputed for view 0");
-        assertFalse(header.primaryFlag(), "n1 should not be primary at view 0 with default config");
+        assertEquals(1L, header.view(), "View should reset to 0");
+        assertEquals(Node.computePrimaryServerId(1L), header.primary(), "Primary should be recomputed for view 0");
+        assertTrue(header.primaryFlag(), "n1 should be primary at view 1 with default config");
         assertFalse(header.faulty(), "Faulty flag should reset to false");
         assertEquals(0L, header.seq(), "Sequence should reset to 0");
         assertEquals(0L, header.lastExec(), "Last executed seq should reset to 0");
 
         // Verify data structures cleared
         assertTrue(((java.util.Map<?,?>) state.snapshotStateMachine()).isEmpty(), "Balances should be cleared");
-        assertNull(state.lastReplyTimestamp("client1"), "Reply timestamps should be cleared");
+        assertEquals(0L, state.lastReplyTimestamp("client1"), "Reply timestamps should be cleared");
         assertTrue(state.outboundQueue().isEmpty(), "Outbound queue should be cleared");
     }
 
@@ -182,7 +182,7 @@ class ServerStateTest {
     @Test
     void testLastReplyTimestamp_updatesOnlyOnNewer() {
         ServerState state = newState("n1");
-        assertNull(state.lastReplyTimestamp("client1"), "No reply yet for client");
+        assertEquals(0L, state.lastReplyTimestamp("client1"), "No reply yet for client");
 
         state.rememberReply("client1", 100L, "ok1");
         assertEquals(100L, state.lastReplyTimestamp("client1"), "Last timestamp should be 100");

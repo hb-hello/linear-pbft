@@ -67,12 +67,17 @@ public class PrePrepareHandler {
             return;
         }
 
-        if (!isValid(prePrepareRequest.getPrePrepareMessage())) {
+        MessageServiceOuterClass.PrePrepareMessage prePrepareMessage = prePrepareRequest.getPrePrepareMessage();
+
+        if (!isValid(prePrepareMessage)) {
             logger.info("Invalid PrePrepare message, ignoring");
             return;
         }
 
-        state.appendServerMessage(prePrepareRequest);
+        if (!state.appendServerMessage(prePrepareMessage)) {
+            logger.info("Duplicate PrePrepare message detected in state, ignoring");
+            return;
+        }
 
         // attempt prepare
 

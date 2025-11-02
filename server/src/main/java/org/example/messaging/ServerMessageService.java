@@ -62,10 +62,14 @@ public class ServerMessageService extends MessageServiceGrpc.MessageServiceImplB
     @Override
     public void prePrepare(MessageServiceOuterClass.PrePrepareRequest request, StreamObserver<Empty> responseObserver) {
 
-        if (!auth.verify(request)) {
+        //Verify inner preprepare message
+        MessageServiceOuterClass.PrePrepareMessage prePrepareMessage = request.getPrePrepareMessage();
+        if (!auth.verify(prePrepareMessage)) {
             logger.warn("Invalid signature for Pre-Prepare message from server {}", request.getPrePrepareMessage().getSignerId());
             return;
         }
+
+        logger.info("Signature verified for Pre-Prepare message from server {}", request.getPrePrepareMessage().getSignerId());
 
         communicationLogger.add(
                 String.format("MESSAGE: <PRE-PREPARE, <%d, %d>> received from server %s",
@@ -75,7 +79,11 @@ public class ServerMessageService extends MessageServiceGrpc.MessageServiceImplB
                 )
         );
 
-        MessageServiceOuterClass.PrePrepareRequest clearedRequest = (MessageServiceOuterClass.PrePrepareRequest) auth.removeSignature(request);
+        MessageServiceOuterClass.PrePrepareMessage clearedMessage = (MessageServiceOuterClass.PrePrepareMessage) auth.removeSignature(prePrepareMessage);
+        MessageServiceOuterClass.PrePrepareRequest clearedRequest = MessageServiceOuterClass.PrePrepareRequest.newBuilder()
+                .setPrePrepareMessage(clearedMessage)
+                .setRequest(request.getRequest())
+                .build();
         serverNode.handlePrePrepare(clearedRequest);
     }
 

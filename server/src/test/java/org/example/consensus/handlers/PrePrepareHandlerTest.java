@@ -98,19 +98,19 @@ class PrePrepareHandlerTest {
         // Setup: Create a valid PrePrepare message
         MessageServiceOuterClass.ClientRequest clientRequest = createClientRequest("client1", 1000L);
         MessageServiceOuterClass.PrePrepareRequest prePrepareRequest =
-                createPrePrepareRequest(0L, 1L, clientRequest);
+                createPrePrepareRequest(1L, 1L, clientRequest);
 
         // Initially, state should not have this PrePrepare
-        assertNull(state.findPrePrepare(0L, 1L), "State should not have PrePrepare before handling");
+        assertNull(state.findPrePrepare(1L, 1L), "State should not have PrePrepare before handling");
 
         // Act: Handle the PrePrepare
         handler.handle(prePrepareRequest);
 
         // Assert: PrePrepare should be added to state
-        ServerMessage foundMessage = state.findPrePrepare(0L, 1L);
+        ServerMessage foundMessage = state.findPrePrepare(1L, 1L);
         assertNotNull(foundMessage, "PrePrepare should be added to state");
         assertEquals("PrePrepareRequest", foundMessage.getMessageType());
-        assertEquals(0L, foundMessage.getViewNumber().orElse(-1L));
+        assertEquals(1L, foundMessage.getViewNumber().orElse(-1L));
         assertEquals(1L, foundMessage.getSequenceNumber().orElse(-1L));
     }
 
@@ -137,15 +137,15 @@ class PrePrepareHandlerTest {
 
         // Test with seq = 0 (at low watermark, exclusive)
         MessageServiceOuterClass.PrePrepareRequest prePrepareRequest1 =
-                createPrePrepareRequest(0L, 0L, clientRequest);
+                createPrePrepareRequest(1L, 0L, clientRequest);
         handler.handle(prePrepareRequest1);
-        assertNull(state.findPrePrepare(0L, 0L), "PrePrepare with seq at low watermark should not be added");
+        assertNull(state.findPrePrepare(1L, 0L), "PrePrepare with seq at low watermark should not be added");
 
         // Test with seq = 101 (above high watermark)
         MessageServiceOuterClass.PrePrepareRequest prePrepareRequest2 =
-                createPrePrepareRequest(0L, 101L, clientRequest);
+                createPrePrepareRequest(1L, 101L, clientRequest);
         handler.handle(prePrepareRequest2);
-        assertNull(state.findPrePrepare(0L, 101L), "PrePrepare with seq above high watermark should not be added");
+        assertNull(state.findPrePrepare(1L, 101L), "PrePrepare with seq above high watermark should not be added");
     }
 
     @Test
@@ -153,16 +153,16 @@ class PrePrepareHandlerTest {
         // Test seq = 1 (just above low watermark, should be accepted)
         MessageServiceOuterClass.ClientRequest clientRequest1 = createClientRequest("client1", 1000L);
         MessageServiceOuterClass.PrePrepareRequest prePrepareRequest1 =
-                createPrePrepareRequest(0L, 1L, clientRequest1);
+                createPrePrepareRequest(1L, 1L, clientRequest1);
         handler.handle(prePrepareRequest1);
-        assertNotNull(state.findPrePrepare(0L, 1L), "PrePrepare with seq=1 should be added");
+        assertNotNull(state.findPrePrepare(1L, 1L), "PrePrepare with seq=1 should be added");
 
         // Test seq = 100 (at high watermark, inclusive, should be accepted)
         MessageServiceOuterClass.ClientRequest clientRequest2 = createClientRequest("client2", 2000L);
         MessageServiceOuterClass.PrePrepareRequest prePrepareRequest2 =
-                createPrePrepareRequest(0L, 100L, clientRequest2);
+                createPrePrepareRequest(1L, 100L, clientRequest2);
         handler.handle(prePrepareRequest2);
-        assertNotNull(state.findPrePrepare(0L, 100L), "PrePrepare with seq=100 should be added");
+        assertNotNull(state.findPrePrepare(1L, 100L), "PrePrepare with seq=100 should be added");
     }
 
     @Test
@@ -170,10 +170,10 @@ class PrePrepareHandlerTest {
         // Setup: Add a PrePrepare first time
         MessageServiceOuterClass.ClientRequest clientRequest = createClientRequest("client1", 1000L);
         MessageServiceOuterClass.PrePrepareRequest prePrepareRequest =
-                createPrePrepareRequest(0L, 1L, clientRequest);
+                createPrePrepareRequest(1L, 1L, clientRequest);
 
         handler.handle(prePrepareRequest);
-        ServerMessage first = state.findPrePrepare(0L, 1L);
+        ServerMessage first = state.findPrePrepare(1L, 1L);
         assertNotNull(first, "First PrePrepare should be added");
 
         // Get the current size of messages
@@ -193,16 +193,16 @@ class PrePrepareHandlerTest {
         // Setup: Add a PrePrepare with one digest
         MessageServiceOuterClass.ClientRequest clientRequest1 = createClientRequest("client1", 1000L);
         MessageServiceOuterClass.PrePrepareRequest prePrepareRequest1 =
-                createPrePrepareRequest(0L, 1L, clientRequest1);
+                createPrePrepareRequest(1L, 1L, clientRequest1);
         handler.handle(prePrepareRequest1);
-        assertNotNull(state.findPrePrepare(0L, 1L));
+        assertNotNull(state.findPrePrepare(1L, 1L));
 
         int sizeAfterFirst = state.getServerMessageTracker().size();
 
         // Act: Try to add another PrePrepare with same view/seq but different digest
         MessageServiceOuterClass.ClientRequest clientRequest2 = createClientRequest("client2", 2000L);
         MessageServiceOuterClass.PrePrepareRequest prePrepareRequest2 =
-                createPrePrepareRequest(0L, 1L, clientRequest2);
+                createPrePrepareRequest(1L, 1L, clientRequest2);
         handler.handle(prePrepareRequest2);
 
         // Assert: Second PrePrepare should be rejected (different digest for same view/seq)
@@ -219,13 +219,13 @@ class PrePrepareHandlerTest {
 
         MessageServiceOuterClass.ClientRequest clientRequest = createClientRequest("client1", 1000L);
         MessageServiceOuterClass.PrePrepareRequest prePrepareRequest =
-                createPrePrepareRequest(0L, 1L, clientRequest);
+                createPrePrepareRequest(1L, 1L, clientRequest);
 
         // Act: Handle with invalid client request signature
         rejectingHandler.handle(prePrepareRequest);
 
         // Assert: PrePrepare should NOT be added due to invalid signature
-        assertNull(state.findPrePrepare(0L, 1L),
+        assertNull(state.findPrePrepare(1L, 1L),
                 "PrePrepare with invalid client signature should not be added");
     }
 
@@ -236,13 +236,13 @@ class PrePrepareHandlerTest {
             MessageServiceOuterClass.ClientRequest clientRequest =
                     createClientRequest("client" + seq, 1000L + seq);
             MessageServiceOuterClass.PrePrepareRequest prePrepareRequest =
-                    createPrePrepareRequest(0L, (long) seq, clientRequest);
+                    createPrePrepareRequest(1L, (long) seq, clientRequest);
             handler.handle(prePrepareRequest);
         }
 
         // Assert: All 5 should be added
         for (int seq = 1; seq <= 5; seq++) {
-            assertNotNull(state.findPrePrepare(0L, (long) seq),
+            assertNotNull(state.findPrePrepare(1L, (long) seq),
                     "PrePrepare with seq=" + seq + " should be added");
         }
     }

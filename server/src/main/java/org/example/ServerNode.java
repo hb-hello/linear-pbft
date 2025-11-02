@@ -44,44 +44,60 @@ public class ServerNode extends Node {
     }
 
     public void handleClientRequest(MessageServiceOuterClass.ClientRequest request) {
-        String clientId = request.getClientId();
-        long timestamp = request.getTimestamp();
-        MessageServiceOuterClass.Operation operation = request.getOperation();
 
-        executorManager.submitStateTransition(() -> {
-            if (timestamp <= state.lastReplyTimestamp(clientId)) {
-                logger.info("Ignoring stale ClientRequest from client {}: timestamp {}", clientId, timestamp);
-                // TODO: resend cached reply
-                return;
-            }
+        executorManager.submitMessageProcessing(() -> {
+            String clientId = request.getClientId();
+            long timestamp = request.getTimestamp();
+            MessageServiceOuterClass.Operation operation = request.getOperation();
+            logger.info("Handling ClientRequest from client {}: timestamp {}, operation {}",
+                    clientId, timestamp, operation.getOpCase());
 
-            state.appendServerMessage(ServerMessage.wrap(request));
-            // refresh liveness timer?
+            executorManager.submitStateTransition(() -> {
+                logger.info("Entering state transition for ClientRequest from client {}: timestamp {}",
+                        clientId, timestamp);
+                if (timestamp <= state.lastReplyTimestamp(clientId)) {
+                    logger.info("Ignoring stale ClientRequest from client {}: timestamp {}", clientId, timestamp);
+                    // TODO: resend cached reply
+                    return;
+                }
 
-            if (!state.isPrimary()) {
-                String primaryServerId = state.getPrimaryServerId();
-                logger.info("Forwarding ClientRequest from client {} to primary server {}", clientId, primaryServerId);
-                sender.forwardClientRequest(primaryServerId, request);
-                return;
-            }
+                if (!state.appendServerMessage(ServerMessage.wrap(request))) {
+                    logger.info("Duplicate ClientRequest from client {}: timestamp {}, ignoring",
+                            clientId, timestamp);
+                    return;
+                }
+                // TODO: refresh liveness timer
+
+                if (!state.isPrimary()) {
+                    String primaryServerId = state.getPrimaryServerId();
+                    logger.info("Forwarding ClientRequest from client {} to primary server {}", clientId, primaryServerId);
+                    sender.forwardClientRequest(primaryServerId, request);
+                    return;
+                }
+
+                // initiate PBFT protocol
+                prePrepareSender.attemptPrePrepare(request);
+            });
+
+
+            // await consensus
+            // execute operation in request
+            // send ClientReply
+
+//            int serverNumber = Integer.parseInt(nodeId.substring(1));
+//            logger.info("Moved out of state transition for ClientRequest from client {}: timestamp {}",
+//                    clientId, timestamp);
+            MessageServiceOuterClass.ClientReply reply = MessageServiceOuterClass.ClientReply.newBuilder()
+                    .setViewNumber(1L)
+                    .setTimestamp(timestamp)
+                    .setClientId(clientId)
+                    .setServerId(nodeId)
+                    .setResult(MessageServiceOuterClass.OperationResult.newBuilder().setResult(true).build())
+                    .build();
+            sender.sendClientReply(clientId, reply);
         });
 
-        // initiate PBFT protocol
-        prePrepareSender.attemptPrePrepare(request);
 
-        // await consensus
-        // execute operation in request
-        // send ClientReply
-
-        int serverNumber = Integer.parseInt(nodeId.substring(1));
-        MessageServiceOuterClass.ClientReply reply = MessageServiceOuterClass.ClientReply.newBuilder()
-                .setViewNumber(1L)
-                .setTimestamp(timestamp)
-                .setClientId(clientId)
-                .setServerId(nodeId)
-//                .setResult(serverNumber % 2 == 1)
-                .build();
-        sender.sendClientReply(clientId, reply);
     }
 
     public void handlePrePrepare(MessageServiceOuterClass.PrePrepareRequest prePrepareRequest) {

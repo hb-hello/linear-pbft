@@ -1,6 +1,8 @@
 package org.example.serverstate;
 
 import com.google.protobuf.Message;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.example.MessageServiceOuterClass;
 import org.example.config.Config;
 import org.example.messaging.ServerMessage;
@@ -17,10 +19,12 @@ import static org.example.Node.computePrimaryServerId;
  */
 public final class ServerState {
 
+    private static final Logger logger = LogManager.getLogger(ServerState.class);
+
     // Executor provided by ExecutorManager (named "state-manager-*" thread)
     private final ExecutorService stateExec;
 
-    private static final long INITIAL_VIEW = 0L;
+    private static final long INITIAL_VIEW = 1L;
 
     // Header fields — only accessed/mutated on the stateExec thread
     private String serverId;
@@ -72,7 +76,8 @@ public final class ServerState {
     // Re-entrancy: rely on the named thread "state-manager-*"
     private boolean onStateThread() {
         String name = Thread.currentThread().getName();
-        return name != null && name.startsWith("state-manager");
+//        logger.info("Current thread name: {}, on state thread? {}", name, name.startsWith("-state-manager"));
+        return name != null && name.startsWith("-state-manager");
     }
 
     public <T> CompletableFuture<T> runAsync(Callable<T> task) {
@@ -98,6 +103,7 @@ public final class ServerState {
     public <T> T runSync(Callable<T> task) {
         if (onStateThread()) {
             try {
+//                logger.info("Running task synchronously on state thread");
                 return task.call();
             } catch (Exception e) {
                 throw wrap(e);
@@ -105,6 +111,7 @@ public final class ServerState {
         }
         // No timeout: block until completion
         try {
+//            logger.info("Submitting task to state executor for synchronous execution as onStateThread was false");
             return runAsync(task).get();
         } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();
@@ -210,7 +217,11 @@ public final class ServerState {
     }
 
     public Long lastReplyTimestamp(String clientId) {
-        return runSync(() -> replyTimestamps.get(clientId));
+        logger.info("Fetching last reply timestamp for clientId: {}", clientId);
+        return runSync(() -> {
+            logger.info("Current reply timestamp {}", replyTimestamps.getOrDefault(clientId, 0L));
+            return replyTimestamps.getOrDefault(clientId, 0L);
+        });
     }
 
     public Object cachedReply(String clientId) {
@@ -219,14 +230,13 @@ public final class ServerState {
 
     // Logs and buffers
 
-    public void appendServerMessage(ServerMessage msg) {
-        runSync(() -> {
-            serverMessageTracker.append(msg);
-        });
+    public boolean appendServerMessage(ServerMessage msg) {
+        logger.info("Appending server message: {}", msg.toDetailedString());
+        return runSync(() -> serverMessageTracker.append(msg));
     }
 
-    public void appendServerMessage(Message msg) {
-        appendServerMessage(ServerMessage.wrap(msg));
+    public boolean appendServerMessage(Message msg) {
+        return appendServerMessage(ServerMessage.wrap(msg));
     }
 
     public ServerMessageTracker getServerMessageTracker() {

@@ -32,12 +32,20 @@ public class PrePrepareSender extends MessageSender {
      */
     public void attemptPrePrepare(MessageServiceOuterClass.ClientRequest clientRequest) {
         if (!canSend()) {
+            logger.info("Cannot send PrePrepare: isPrimary={}, isFaulty={}, isActive={}",
+                    state.isPrimary(), state.isFaulty(), isActive());
             return;
         }
+
+        logger.info("Preparing to send PrePrepare for client request from client {} with timestamp {}",
+                clientRequest.getClientId(), clientRequest.getTimestamp());
 
         // Generate digest and assign sequence number
         byte[] digest = MessageUtil.generateDigest(clientRequest);
         long seqNum = state.nextSeq();
+
+        logger.info("Calculated next sequence number {} for PrePrepare in view {}",
+                seqNum, state.getViewNumber());
 
         // Build PrePrepare message
         MessageServiceOuterClass.PrePrepareMessage prePrepareMsg =
@@ -47,11 +55,16 @@ public class PrePrepareSender extends MessageSender {
                         .setDigest(com.google.protobuf.ByteString.copyFrom(digest))
                         .build();
 
+        MessageServiceOuterClass.PrePrepareMessage signedPrePrepareMsg = (MessageServiceOuterClass.PrePrepareMessage) auth.sign(prePrepareMsg);
+
         MessageServiceOuterClass.PrePrepareRequest request =
                 MessageServiceOuterClass.PrePrepareRequest.newBuilder()
-                        .setPrePrepareMessage(prePrepareMsg)
+                        .setPrePrepareMessage(signedPrePrepareMsg)
                         .setRequest(com.google.protobuf.ByteString.copyFrom(clientRequest.toByteArray()))
                         .build();
+
+        logger.info("Constructed PrePrepareRequest for seqNum {} in view {}",
+                seqNum, state.getViewNumber());
 
         // Sign with TSS and broadcast
         broadcastToServers(request);
@@ -62,7 +75,7 @@ public class PrePrepareSender extends MessageSender {
         logger.info("Broadcasting PrePrepare for seqNum {} in view {}",
                 request.getPrePrepareMessage().getSequenceNumber(),
                 request.getPrePrepareMessage().getViewNumber());
-        broadcastWithTSS(request, (stub, signed) ->
+        broadcastWithoutSigning(request, (stub, signed) ->
                 stub.prePrepare((MessageServiceOuterClass.PrePrepareRequest) signed));
     }
 

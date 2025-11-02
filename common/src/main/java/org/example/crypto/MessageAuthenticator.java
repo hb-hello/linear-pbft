@@ -73,6 +73,7 @@ public class MessageAuthenticator {
     }
 
     public Message signWithTSS(Message message) {
+//        logger.info("Signing message with TSS: {}", message.getClass().getSimpleName());
         Descriptors.FieldDescriptor fSig = message.getDescriptorForType().findFieldByName("signature");
         if (fSig == null) throw new IllegalStateException("Message missing signature field");
 

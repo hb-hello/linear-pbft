@@ -2,6 +2,8 @@ package org.example.messaging;
 
 import com.google.protobuf.ByteString;
 import com.google.protobuf.Message;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.example.MessageServiceGrpc;
 import org.example.MessageServiceOuterClass;
 import org.example.config.Config;
@@ -14,6 +16,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BiConsumer;
 
 public class MessageSender {
+
+    private static final Logger logger = LogManager.getLogger(MessageSender.class);
 
     protected final String nodeId;
     protected final StubManager stubManager;
@@ -39,6 +43,7 @@ public class MessageSender {
 
     public void ensureActive() {
         if (!isActive()) {
+            logger.warn("Node {} is inactive. Cannot send messages.", nodeId);
             throw new IllegalStateException("Node is inactive. Cannot send messages.");
         }
     }
@@ -47,8 +52,10 @@ public class MessageSender {
     protected void signAndSend(String targetNodeId, Message message, BiConsumer<MessageServiceGrpc.MessageServiceFutureStub, Message> method) {
         ensureActive();
         Message signedMessage = auth.sign(message);
+        logger.info("Sending signed message to node {}: {}", targetNodeId, message.getClass());
         MessageServiceGrpc.MessageServiceFutureStub stub = stubManager.getFutureStub(targetNodeId);
         method.accept(stub, signedMessage);
+        logger.info("Message sent to node {}: {}", targetNodeId, message.getClass());
     }
 
     // Generic method to sign with threshold signature scheme and send a message using the provided gRPC method
@@ -66,21 +73,23 @@ public class MessageSender {
         method.accept(stub, signedMessage);
     }
 
-    protected void broadcast(Message message, BiConsumer<MessageServiceGrpc.MessageServiceFutureStub, Message> method) {
+    protected void broadcastWithoutSigning(Message message, BiConsumer<MessageServiceGrpc.MessageServiceFutureStub, Message> method) {
         ensureActive();
-        Message signedMessage = auth.sign(message);
         for (String targetNodeId : Config.getServerIdsExcept(nodeId)) {
             MessageServiceGrpc.MessageServiceFutureStub stub = stubManager.getFutureStub(targetNodeId);
-            method.accept(stub, signedMessage);
+            method.accept(stub, message);
         }
     }
 
     protected void broadcastWithTSS(Message message, BiConsumer<MessageServiceGrpc.MessageServiceFutureStub, Message> method) {
         ensureActive();
         Message signedMessage = auth.signWithTSS(message);
+        logger.info("Signed broadcast message with TSS: {}", message.getClass());
         for (String targetNodeId : Config.getServerIdsExcept(nodeId)) {
+            logger.info("Broadcasting signed message to node {}: {}", targetNodeId, message.getClass());
             MessageServiceGrpc.MessageServiceFutureStub stub = stubManager.getFutureStub(targetNodeId);
             method.accept(stub, signedMessage);
+            logger.info("Message broadcasted to node {}: {}", targetNodeId, message.getClass());
         }
     }
 

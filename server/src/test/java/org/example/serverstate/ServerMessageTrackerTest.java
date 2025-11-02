@@ -187,8 +187,8 @@ class ServerMessageTrackerTest {
     }
 
     @Test
-    void testMessageWithoutViewOrSequence() {
-        // Create a ClientReply (doesn't have view/sequence in our supported list)
+    void testMessageWithViewOnlyNoSequence() {
+        // Create a ClientReply (has view_number but no sequence_number)
         MessageServiceOuterClass.ClientReply clientReply = MessageServiceOuterClass.ClientReply.newBuilder()
                 .setViewNumber(1)
                 .setTimestamp(12345L)
@@ -201,12 +201,14 @@ class ServerMessageTrackerTest {
         ServerMessage serverMsg = ServerMessage.wrap(clientReply);
         tracker.append(serverMsg);
 
-        // Message is added to allMessages but not indexed (view/sequence extraction returns empty)
+        // Message is added and indexed by view number only
         assertEquals(1, tracker.size());
 
-        // Should not be findable by view/seq (since it's not a supported message type)
-        ServerMessage found = tracker.findMessage("ClientReply", 1, 0);
-        assertNull(found, "ClientReply should not be indexed");
+        // Should be findable by its index "ClientReply:1"
+        ServerMessage found = tracker.findByIndex("ClientReply:1");
+        assertNotNull(found, "ClientReply should be indexed by view number only");
+        assertEquals("ClientReply", found.getMessageType());
+        assertEquals(1L, found.getViewNumber().orElse(-1L));
     }
 
     @Test
@@ -350,8 +352,8 @@ class ServerMessageTrackerTest {
     }
 
     @Test
-    void testAppendMessagesWithoutViewSeq_noDeduplication() {
-        // Create ClientReply messages without indexed view/seq (not in supported types)
+    void testAppendClientReplyWithSameView_isDeduplicated() {
+        // Create ClientReply messages with same view number (indexed by view only)
         MessageServiceOuterClass.ClientReply reply1 = MessageServiceOuterClass.ClientReply.newBuilder()
                 .setViewNumber(1)
                 .setTimestamp(1000L)
@@ -363,19 +365,86 @@ class ServerMessageTrackerTest {
 
         MessageServiceOuterClass.ClientReply reply2 = MessageServiceOuterClass.ClientReply.newBuilder()
                 .setViewNumber(1)
-                .setTimestamp(2000L)
-                .setClientId("c1")
-                .setServerId("n1")
-                .setSignerId("n1")
+                .setTimestamp(2000L)  // Different timestamp
+                .setClientId("c2")      // Different client
+                .setServerId("n2")      // Different server
+                .setSignerId("n2")
                 .setSignature(ByteString.copyFromUtf8("sig2"))
                 .build();
 
-        // Both should be added (no deduplication for unindexed messages)
+        // First message is added
         tracker.append(ServerMessage.wrap(reply1));
-        tracker.append(ServerMessage.wrap(reply2));
+        assertEquals(1, tracker.size());
 
-        assertEquals(2, tracker.size(),
-                "Messages without indexed view/seq should not be deduplicated");
+        // Second message with same view is deduplicated (indexed as "ClientReply:1")
+        tracker.append(ServerMessage.wrap(reply2));
+        assertEquals(1, tracker.size(),
+                "ClientReply messages with same view number should be deduplicated");
+
+        // Verify the first message is retained
+        ServerMessage found = tracker.findByIndex("ClientReply:1");
+        assertNotNull(found);
+        assertEquals(1000L, found.getTimestamp().orElse(-1L));
+    }
+
+    @Test
+    void testFindByIndexWithClientRequest() {
+        // Create a ClientRequest (indexed by client_id and timestamp)
+        MessageServiceOuterClass.ClientRequest request = MessageServiceOuterClass.ClientRequest.newBuilder()
+                .setClientId("A")
+                .setTimestamp(123456789L)
+                .setOperation(MessageServiceOuterClass.Operation.newBuilder()
+                        .setBalanceRequest(MessageServiceOuterClass.BalanceRequest.newBuilder()
+                                .setAccountId("A")
+                                .build())
+                        .build())
+                .build();
+
+        tracker.append(ServerMessage.wrap(request));
+
+        // Find by index "ClientRequest:A:123456789"
+        ServerMessage found = tracker.findByIndex("ClientRequest:A:123456789");
+        assertNotNull(found, "Should find ClientRequest by its index");
+        assertEquals("ClientRequest", found.getMessageType());
+        assertEquals("A", found.getClientId().orElse(null));
+        assertEquals(123456789L, found.getTimestamp().orElse(-1L));
+    }
+
+    @Test
+    void testFindByIndexWithDifferentFormats() {
+        // Add messages with different index formats
+
+        // Format 1: MessageType:view:sequence
+        MessageServiceOuterClass.PrepareMessage prepare = MessageServiceOuterClass.PrepareMessage.newBuilder()
+                .setViewNumber(3)
+                .setSequenceNumber(200)
+                .setDigest(ByteString.copyFromUtf8("digest"))
+                .setSignerId("n1")
+                .build();
+        tracker.append(ServerMessage.wrap(prepare));
+
+        // Format 2: MessageType:view
+        MessageServiceOuterClass.ClientReply reply = MessageServiceOuterClass.ClientReply.newBuilder()
+                .setViewNumber(7)
+                .setTimestamp(999L)
+                .setClientId("c1")
+                .setServerId("n1")
+                .build();
+        tracker.append(ServerMessage.wrap(reply));
+
+        // Format 3: MessageType:clientId:timestamp
+        MessageServiceOuterClass.ClientRequest request = MessageServiceOuterClass.ClientRequest.newBuilder()
+                .setClientId("B")
+                .setTimestamp(555555L)
+                .build();
+        tracker.append(ServerMessage.wrap(request));
+
+        // Verify all can be found by their respective indices
+        assertNotNull(tracker.findByIndex("PrepareMessage:3:200"));
+        assertNotNull(tracker.findByIndex("ClientReply:7"));
+        assertNotNull(tracker.findByIndex("ClientRequest:B:555555"));
+
+        assertEquals(3, tracker.size());
     }
 }
 

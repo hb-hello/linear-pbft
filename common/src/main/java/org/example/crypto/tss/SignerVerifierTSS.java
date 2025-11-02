@@ -1,6 +1,9 @@
 package org.example.crypto.tss;
 
 import com.google.protobuf.Message;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.example.crypto.MessageAuthenticator;
 import supranational.blst.*;
 
 import java.math.BigInteger;
@@ -13,6 +16,9 @@ import java.util.stream.Collectors;
  * - combine/verifyFinal are used by the collector for Commit and by recipients.
  */
 public final class SignerVerifierTSS {
+
+    private static final Logger logger = LogManager.getLogger(SignerVerifierTSS.class);
+
     private final ThresholdKeyManager km;          // org.example.crypto.tss.KeyManager that loads SecretKey and P1 pubkeys
     private final String selfId;
     private final String dst;             // fixed DST, e.g., "BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_NUL_"
@@ -27,6 +33,7 @@ public final class SignerVerifierTSS {
 
     // Canonicalize by clearing signature-related fields present in our proto
     public Message clearForSigning(Message msg) {
+//        logger.info("SignerVerifierTSS.clearForSigning: clearing message of type {}", msg.getDescriptorForType().getFullName());
         var b = msg.toBuilder();
         var d = msg.getDescriptorForType();
         // Common fields
@@ -46,6 +53,7 @@ public final class SignerVerifierTSS {
         SecretKey sk = km.getPrivateKey();
         byte[] bytes = clearForSigning(msg).toByteArray();
         // Sign with this node's share secret key
+//        logger.info("SignerVerifierTSS.partialSign: signing message of {} bytes", bytes.length);
         P2 partialSig = new P2();
         return partialSig.hash_to(bytes, dst).sign_with(sk).serialize();
     }

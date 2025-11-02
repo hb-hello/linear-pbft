@@ -45,10 +45,126 @@ public interface ServerMessage {
     }
 
     /**
+     * Extract client ID if present in the message (for ClientRequest).
+     */
+    default Optional<String> getClientId() {
+        return extractStringField("client_id");
+    }
+
+    /**
+     * Extract timestamp if present in the message (for ClientRequest).
+     */
+    default Optional<Long> getTimestamp() {
+        return extractLongField("timestamp");
+    }
+
+    /**
      * Get the message type as a string for logging/debugging.
      */
     default String getMessageType() {
         return getMessage().getDescriptorForType().getName();
+    }
+
+    /**
+     * Calculate a unique index for this message based on its type and relevant fields.
+     * <ul>
+     *   <li>For messages with view_number and sequence_number (PrePrepare, Prepare, Commit, Checkpoint, ViewChange):
+     *       returns "MessageType:viewNumber:sequenceNumber"</li>
+     *   <li>For messages with only view_number (NewView):
+     *       returns "MessageType:viewNumber"</li>
+     *   <li>For messages with client_id and timestamp (ClientRequest):
+     *       returns "MessageType:clientId:timestamp"</li>
+     *   <li>For other messages:
+     *       returns "MessageType:unknown"</li>
+     * </ul>
+     *
+     * @return A string index uniquely identifying this message
+     */
+    default String getMessageIndex() {
+        String messageType = getMessageType();
+
+        // Check for view_number and sequence_number (PrePrepare, Prepare, Commit, etc.)
+        Optional<Long> viewNumber = getViewNumber();
+        Optional<Long> sequenceNumber = getSequenceNumber();
+
+        if (viewNumber.isPresent() && sequenceNumber.isPresent()) {
+            return String.format("%s:%d:%d", messageType, viewNumber.get(), sequenceNumber.get());
+        }
+
+        // Check for view_number only (NewView)
+        if (viewNumber.isPresent()) {
+            return String.format("%s:%d", messageType, viewNumber.get());
+        }
+
+        // Check for client_id and timestamp (ClientRequest)
+        Optional<String> clientId = getClientId();
+        Optional<Long> timestamp = getTimestamp();
+
+        if (clientId.isPresent() && timestamp.isPresent()) {
+            return String.format("%s:%s:%d", messageType, clientId.get(), timestamp.get());
+        }
+
+        // Fallback for unknown message types
+        return String.format("%s:unknown", messageType);
+    }
+
+    /**
+     * Returns a detailed string representation of the message with type and all available fields.
+     * Includes view_number, sequence_number, digest, client_id, and timestamp if present.
+     *
+     * @return A formatted string showing message type and all populated fields
+     */
+    default String toDetailedString() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(getMessageType()).append("{");
+
+        boolean hasFields = false;
+
+        // Add view number if present
+        Optional<Long> viewNumber = getViewNumber();
+        if (viewNumber.isPresent()) {
+            sb.append("viewNumber=").append(viewNumber.get());
+            hasFields = true;
+        }
+
+        // Add sequence number if present
+        Optional<Long> sequenceNumber = getSequenceNumber();
+        if (sequenceNumber.isPresent()) {
+            if (hasFields) sb.append(", ");
+            sb.append("sequenceNumber=").append(sequenceNumber.get());
+            hasFields = true;
+        }
+
+        // Add digest if present
+        Optional<ByteString> digest = getDigest();
+        if (digest.isPresent()) {
+            if (hasFields) sb.append(", ");
+            sb.append("digest=").append(digest.get().toStringUtf8());
+            hasFields = true;
+        }
+
+        // Add client ID if present
+        Optional<String> clientId = getClientId();
+        if (clientId.isPresent()) {
+            if (hasFields) sb.append(", ");
+            sb.append("clientId=").append(clientId.get());
+            hasFields = true;
+        }
+
+        // Add timestamp if present
+        Optional<Long> timestamp = getTimestamp();
+        if (timestamp.isPresent()) {
+            if (hasFields) sb.append(", ");
+            sb.append("timestamp=").append(timestamp.get());
+            hasFields = true;
+        }
+
+        // Add message index
+        if (hasFields) sb.append(", ");
+        sb.append("index=").append(getMessageIndex());
+
+        sb.append("}");
+        return sb.toString();
     }
 
     /**
@@ -121,6 +237,44 @@ public interface ServerMessage {
                     Object value = nestedMsg.getField(nestedTargetField);
                     if (value instanceof ByteString && !((ByteString) value).isEmpty()) {
                         return Optional.of((ByteString) value);
+                    }
+                }
+            }
+        }
+
+        return Optional.empty();
+    }
+
+    /**
+     * Helper method to extract a String field from the message using reflection.
+     * Checks both direct fields and nested message fields (e.g., pre_prepare_message).
+     */
+    default Optional<String> extractStringField(String fieldName) {
+        Message msg = getMessage();
+        Descriptors.Descriptor descriptor = msg.getDescriptorForType();
+
+        // First, try to find the field directly in the message
+        Descriptors.FieldDescriptor field = descriptor.findFieldByName(fieldName);
+        if (field != null) {
+            Object value = msg.getField(field);
+            if (value instanceof String && !((String) value).isEmpty()) {
+                return Optional.of((String) value);
+            }
+        }
+
+        // For PrePrepareRequest, check the nested pre_prepare_message field
+        // Note: For MESSAGE type fields, hasField() DOES work correctly in proto3
+        Descriptors.FieldDescriptor nestedField = descriptor.findFieldByName("pre_prepare_message");
+        if (nestedField != null && nestedField.getType() == Descriptors.FieldDescriptor.Type.MESSAGE
+                && msg.hasField(nestedField)) {
+            Object nestedObj = msg.getField(nestedField);
+            if (nestedObj instanceof Message) {
+                Message nestedMsg = (Message) nestedObj;
+                Descriptors.FieldDescriptor nestedTargetField = nestedMsg.getDescriptorForType().findFieldByName(fieldName);
+                if (nestedTargetField != null) {
+                    Object value = nestedMsg.getField(nestedTargetField);
+                    if (value instanceof String && !((String) value).isEmpty()) {
+                        return Optional.of((String) value);
                     }
                 }
             }
