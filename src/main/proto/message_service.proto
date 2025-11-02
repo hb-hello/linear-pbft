@@ -16,6 +16,7 @@ service MessageService {
 
     // for cli
     rpc SetActiveFlag(ActiveFlag) returns (Acknowledgement);
+    rpc Reset(google.protobuf.Empty) returns (Acknowledgement) {};
     rpc GetLog(google.protobuf.Empty) returns (CLIResponse) {};
     rpc GetDB(google.protobuf.Empty) returns (CLIResponse) {};
     rpc GetStatus(SequenceNumber) returns (CLIResponse) {};
@@ -98,7 +99,7 @@ message PrePrepareMessage {
 
 message PrePrepareRequest {
     PrePrepareMessage pre_prepare_message = 1;
-    bytes request = 2;
+    ClientRequest request = 2;
 }
 
 message PrepareMessage {

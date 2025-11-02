@@ -151,7 +151,7 @@ class ServerMessageTest {
 
     @Test
     void testToDetailedStringForPrePrepareRequest() {
-        // Create a PrePrepareRequest with nested message
+        // Create a PrePrepareRequest with nested message and ClientRequest
         ByteString digest = ByteString.copyFromUtf8("nested-digest");
         PrePrepareMessage prePrepareMsg = PrePrepareMessage.newBuilder()
                 .setViewNumber(5L)
@@ -160,9 +160,22 @@ class ServerMessageTest {
                 .setSignerId("server1")
                 .build();
 
+        // Create a ClientRequest to embed in the PrePrepareRequest
+        ClientRequest clientRequest = ClientRequest.newBuilder()
+                .setClientId("client1")
+                .setTimestamp(123456L)
+                .setOperation(Operation.newBuilder()
+                        .setTransfer(Transfer.newBuilder()
+                                .setSender("A")
+                                .setReceiver("B")
+                                .setAmount(5.0)
+                                .build())
+                        .build())
+                .build();
+
         PrePrepareRequest request = PrePrepareRequest.newBuilder()
                 .setPrePrepareMessage(prePrepareMsg)
-                .setRequest(ByteString.copyFromUtf8("client-request"))
+                .setRequest(clientRequest)
                 .build();
 
         ServerMessage serverMessage = ServerMessage.wrap(request);

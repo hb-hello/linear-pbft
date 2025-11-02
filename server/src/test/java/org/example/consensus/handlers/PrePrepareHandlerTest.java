@@ -89,7 +89,7 @@ class PrePrepareHandlerTest {
 
         return MessageServiceOuterClass.PrePrepareRequest.newBuilder()
                 .setPrePrepareMessage(prePrepareMsg)
-                .setRequest(clientRequest.toByteString())
+                .setRequest(clientRequest)
                 .build();
     }
 

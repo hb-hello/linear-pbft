@@ -22,11 +22,9 @@ public class PrePrepareHandler {
         this.auth = auth;
     }
 
-    private boolean verifyClientRequest(ByteString requestBytes) {
+    private boolean verifyClientRequest(MessageServiceOuterClass.ClientRequest request) {
         try {
-            MessageServiceOuterClass.ClientRequest clientRequest =
-                    MessageServiceOuterClass.ClientRequest.parseFrom(requestBytes);
-            return auth.verify(clientRequest);
+            return auth.verify(request);
         } catch (Exception e) {
             logger.error("Failed to parse ClientRequest from PrePrepare: {}", e.getMessage());
             return false;
@@ -78,6 +76,8 @@ public class PrePrepareHandler {
             logger.info("Duplicate PrePrepare message detected in state, ignoring");
             return;
         }
+
+        state.appendServerMessage(prePrepareRequest.getRequest());
 
         // attempt prepare
 

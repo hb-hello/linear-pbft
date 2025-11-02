@@ -60,6 +60,14 @@ public class ServerMessageService extends MessageServiceGrpc.MessageServiceImplB
     }
 
     @Override
+    public void reset(Empty request, StreamObserver<MessageServiceOuterClass.Acknowledgement> responseObserver) {
+        serverNode.reset();
+        MessageServiceOuterClass.Acknowledgement ack = MessageServiceOuterClass.Acknowledgement.newBuilder().setStatus(true).build();
+        responseObserver.onNext(ack);
+        responseObserver.onCompleted();
+    }
+
+    @Override
     public void prePrepare(MessageServiceOuterClass.PrePrepareRequest request, StreamObserver<Empty> responseObserver) {
 
         //Verify inner preprepare message

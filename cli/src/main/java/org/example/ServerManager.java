@@ -26,16 +26,34 @@ public class ServerManager {
     }
 
     public static void activateServers(TransactionSet transactionSet) {
+//        Deactivate all servers
+        for (String serverId : Config.getServers().keySet()) {
+            setServerNodeActiveFlag(serverId, false);
+        }
+
 //        Activate required servers based on transaction set
         for (String serverIdToActivate : transactionSet.activeNodesList()) {
             setServerNodeActiveFlag(serverIdToActivate, true);
         }
     }
 
-    public static void deactivateServers(TransactionSet transactionSet) {
-//        Deactivate servers that were active in the transaction set
-        for (String serverId : transactionSet.activeNodesList()) {
-            setServerNodeActiveFlag(serverId, false);
+    public static void resetServer(String serverId) {
+        try {
+            MessageServiceOuterClass.Acknowledgement ack = stubManager.getBlockingStub(serverId)
+                    .reset(Empty.getDefaultInstance());
+            if (!ack.getStatus()) {
+                logger.error("Server {} not reset", serverId);
+                throw new RuntimeException("Server {} not reset");
+            } else logger.info("Server {} reset", serverId);
+        } catch (RuntimeException e) {
+            logger.error("Error when resetting server {}.", serverId);
+            throw new RuntimeException(e);
+        }
+    }
+
+    public static void resetAllServers() {
+        for (String serverId : Config.getServers().keySet()) {
+            resetServer(serverId);
         }
     }
 

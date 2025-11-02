@@ -60,7 +60,7 @@ public class PrePrepareSender extends MessageSender {
         MessageServiceOuterClass.PrePrepareRequest request =
                 MessageServiceOuterClass.PrePrepareRequest.newBuilder()
                         .setPrePrepareMessage(signedPrePrepareMsg)
-                        .setRequest(com.google.protobuf.ByteString.copyFrom(clientRequest.toByteArray()))
+                        .setRequest(clientRequest)
                         .build();
 
         logger.info("Constructed PrePrepareRequest for seqNum {} in view {}",

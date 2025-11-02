@@ -43,6 +43,11 @@ public class ServerNode extends Node {
         receiver.setActive(active);
     }
 
+    public void reset() {
+        logger.info("Resetting server node {}", nodeId);
+        state.reset();
+    }
+
     public void handleClientRequest(MessageServiceOuterClass.ClientRequest request) {
 
         executorManager.submitMessageProcessing(() -> {
@@ -87,12 +92,15 @@ public class ServerNode extends Node {
 //            int serverNumber = Integer.parseInt(nodeId.substring(1));
 //            logger.info("Moved out of state transition for ClientRequest from client {}: timestamp {}",
 //                    clientId, timestamp);
+
+            MessageServiceOuterClass.OperationResult result = state.executeOperation(operation);
+
             MessageServiceOuterClass.ClientReply reply = MessageServiceOuterClass.ClientReply.newBuilder()
                     .setViewNumber(1L)
                     .setTimestamp(timestamp)
                     .setClientId(clientId)
                     .setServerId(nodeId)
-                    .setResult(MessageServiceOuterClass.OperationResult.newBuilder().setResult(true).build())
+                    .setResult(result)
                     .build();
             sender.sendClientReply(clientId, reply);
         });

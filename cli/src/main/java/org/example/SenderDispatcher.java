@@ -70,6 +70,32 @@ public final class SenderDispatcher implements AutoCloseable {
         return new Status(s, c, Math.max(0, s - c));
     }
 
+    /**
+     * Cancels all pending operations and resets for a new transaction set.
+     * Shuts down all executors and recreates them with fresh client nodes.
+     */
+    public void reset() {
+        // Shutdown all existing executors
+        // Forcefully shutdown, cancelling pending tasks
+        executors.values().forEach(ExecutorService::shutdownNow);
+
+        // Clear the maps
+        executors.clear();
+        clients.clear();
+
+        // Reset counters
+        submitted.set(0);
+        completed.set(0);
+
+        // Recreate executors and clients
+        for (char c = 'A'; c <= 'J'; c++) {
+            String id = String.valueOf(c);
+            executors.put(id, newSingle("sender-" + id));
+            clients.put(id, new ClientNode(id));
+        }
+        executors.put(LF_SENDER, newSingle("sender-LF"));
+    }
+
     @Override
     public void close() {
         executors.values().forEach(ExecutorService::shutdown);

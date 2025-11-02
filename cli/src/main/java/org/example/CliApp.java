@@ -52,6 +52,14 @@ public final class CliApp {
                             System.out.println("No more sets.");
                             break;
                         }
+
+                        // Cancel previous dispatch and reset for new set
+                        if (next > 0) {
+                            System.out.println("Cancelling previous dispatch...");
+                            dispatcher.reset();
+                            System.out.println("Previous dispatch cancelled and reset.");
+                        }
+
                         TransactionSet set = sets.get(next++);
 
                         // Display detailed set information
@@ -64,6 +72,7 @@ public final class CliApp {
                             set.getAttackDescription().isEmpty() || set.getAttackDescription().equals("[]")
                                 ? "None" : set.getAttackDescription());
 
+                        ServerManager.resetAllServers();
                         ServerManager.activateServers(set);
 
                         // Submit events exactly in file order

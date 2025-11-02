@@ -16,7 +16,7 @@ public class ServerActivityInterceptor implements ServerInterceptor {
     private final static Logger logger = LogManager.getLogger(ServerActivityInterceptor.class);
 
     private final AtomicBoolean activeFlag = new AtomicBoolean(false);
-    private static final List<String> ALLOWED_METHODS = Arrays.asList("MessageService/SetActiveFlag", "MessageService/GetDB", "MessageService/GetStatus", "MessageService/GetLog", "MessageService/GetNewViews");
+    private static final List<String> ALLOWED_METHODS = Arrays.asList("MessageService/SetActiveFlag", "MessageService/GetDB", "MessageService/GetStatus", "MessageService/GetLog", "MessageService/GetNewViews", "MessageService/Reset");
 
     public void setActiveFlag(boolean active) {
         activeFlag.set(active);
