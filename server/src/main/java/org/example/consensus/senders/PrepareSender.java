@@ -1,12 +1,16 @@
 package org.example.consensus.senders;
 
+import com.google.protobuf.ByteString;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.example.MessageServiceOuterClass;
 import org.example.crypto.MessageAuthenticator;
 import org.example.messaging.CommunicationLogger;
 import org.example.messaging.MessageSender;
+import org.example.messaging.ServerMessage;
 import org.example.serverstate.ServerState;
+
+import java.util.Map;
 
 public class PrepareSender extends MessageSender {
     private static final Logger logger = LogManager.getLogger(PrepareSender.class);
@@ -33,19 +37,47 @@ public class PrepareSender extends MessageSender {
                         .setDigest(com.google.protobuf.ByteString.copyFrom(digest))
                         .build();
 
-        // Sign the message first so that signer_id is set
         MessageServiceOuterClass.PrepareMessage signedPrepareMsg =
                 (MessageServiceOuterClass.PrepareMessage) auth.sign(prepareMsg);
 
-        // Append our own signed Prepare to state (we count our own vote in the quorum)
         if (!state.appendServerMessage(signedPrepareMsg)) {
             logger.warn("Failed to append Prepare message to state for view {} seq {}, likely due to duplicate check", viewNumber, sequenceNumber);
             return;
         };
 
-        // Send the signed PrepareRequest to the collector
         send(state.getCollectorServerId(), signedPrepareMsg, (stub, signed) -> stub.prepare((MessageServiceOuterClass.PrepareMessage) signed));
         logger.info("Sent Prepare for view {} seq {}", viewNumber, sequenceNumber);
     }
 
+    public void broadcastAggregatedPrepare(long viewNumber, long sequenceNumber) {
+        logger.info("Creating aggregated Prepare for view {} seq {}", viewNumber, sequenceNumber);
+
+        Map<String, ByteString> prepareSignatures = state.getQuorumSignatures(ServerMessage.PREPARE, viewNumber, sequenceNumber);
+
+        if (prepareSignatures.isEmpty()) {
+            logger.warn("No Prepare quorum found to aggregate for view {} seq {}", viewNumber, sequenceNumber);
+            return;
+        }
+
+        ByteString digest = state.getQuorumDigest(ServerMessage.PREPARE, viewNumber, sequenceNumber);
+
+        // Build AggregatedPrepare message
+        MessageServiceOuterClass.PrepareMessage aggregatedPrepareMsg =
+                MessageServiceOuterClass.PrepareMessage.newBuilder()
+                        .setViewNumber(viewNumber)
+                        .setSequenceNumber(sequenceNumber)
+                        .setDigest(digest)
+                        .build();
+
+        MessageServiceOuterClass.PrepareMessage signedPrepareMsg =
+                (MessageServiceOuterClass.PrepareMessage) auth.signWithAggregateTss(aggregatedPrepareMsg, prepareSignatures);
+
+        if (!state.appendServerMessage(signedPrepareMsg)) {
+            logger.warn("Failed to append Aggregated Prepare message to state for view {} seq {}, likely due to duplicate check", viewNumber, sequenceNumber);
+            return;
+        };
+
+        broadcast(aggregatedPrepareMsg, (stub, signed) -> stub.prepare((MessageServiceOuterClass.PrepareMessage) signed));
+        logger.info("Broadcasted Aggregated Prepare for view {} seq {}", viewNumber, sequenceNumber);
+    }
 }

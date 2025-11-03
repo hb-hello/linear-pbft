@@ -3,13 +3,12 @@ package org.example;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.example.config.Config;
+import org.example.consensus.handlers.ClientRequestHandler;
 import org.example.consensus.handlers.PrePrepareHandler;
 import org.example.consensus.handlers.PrepareHandler;
-import org.example.consensus.senders.CommitSender;
-import org.example.consensus.senders.PrePrepareSender;
-import org.example.consensus.senders.PrepareSender;
+import org.example.consensus.senders.*;
+import org.example.messaging.MessageSender;
 import org.example.messaging.ServerMessageReceiver;
-import org.example.messaging.ServerMessageSender;
 import org.example.serverstate.ServerState;
 
 public class ServerNode extends Node {
@@ -20,13 +19,15 @@ public class ServerNode extends Node {
     private final int OTHER_SERVER_COUNT = 6;
     private final long REQUEST_TIMEOUT_MILLIS = 1000;
 
-    private final ServerMessageSender sender;
     private final ServerMessageReceiver receiver;
 
+    private final ClientRequestSender clientRequestSender;
+    private final ClientReplySender clientReplySender;
     private final PrePrepareSender prePrepareSender;
     private final PrepareSender prepareSender;
     private final CommitSender commitSender;
 
+    private final ClientRequestHandler clientRequestHandler;
     private final PrePrepareHandler prePrepareHandler;
     private final PrepareHandler prepareHandler;
 
@@ -34,21 +35,27 @@ public class ServerNode extends Node {
 
     public ServerNode(String serverId) {
         super(serverId);
-        this.sender = new ServerMessageSender(serverId, commLogger, auth);
         this.receiver = new ServerMessageReceiver(this, commLogger, auth);
         this.state = new ServerState(serverId, false, executorManager.getStateExecutor());
 
+        this.clientRequestSender = new ClientRequestSender(serverId, commLogger, auth);
+        this.clientReplySender = new ClientReplySender(serverId, commLogger, auth);
         this.prePrepareSender = new PrePrepareSender(serverId, state, commLogger, auth);
         this.prepareSender = new PrepareSender(serverId, state, commLogger, auth);
         this.commitSender = new CommitSender(serverId, MAJORITY_COUNT, state, commLogger, auth);
 
+        this.clientRequestHandler = new ClientRequestHandler(state, clientRequestSender, prePrepareSender);
         this.prePrepareHandler = new PrePrepareHandler(state, auth, prepareSender);
-        this.prepareHandler = new PrepareHandler(state, MAJORITY_COUNT, commitSender);
-
+        this.prepareHandler = new PrepareHandler(state, MAJORITY_COUNT, prepareSender, commitSender);
     }
 
     public void setActive(boolean active) {
-        sender.setActive(active);
+        // set active for all senders
+        clientRequestSender.setActive(active);
+        clientReplySender.setActive(active);
+        prePrepareSender.setActive(active);
+        prepareSender.setActive(active);
+        commitSender.setActive(active);
         receiver.setActive(active);
     }
 
@@ -59,53 +66,17 @@ public class ServerNode extends Node {
 
     public void handleClientRequest(MessageServiceOuterClass.ClientRequest request) {
 
+        executorManager.submitMessageProcessing(() -> clientRequestHandler.handle(request));
+
+        String clientId = request.getClientId();
+        long timestamp = request.getTimestamp();
+        MessageServiceOuterClass.Operation operation = request.getOperation();
+
+        MessageServiceOuterClass.OperationResult result = state.executeOperation(operation);
+        logger.info("Executed operation for ClientRequest from client {}: timestamp {}, result {}",
+                clientId, timestamp, result);
+
         executorManager.submitMessageProcessing(() -> {
-            String clientId = request.getClientId();
-            long timestamp = request.getTimestamp();
-            MessageServiceOuterClass.Operation operation = request.getOperation();
-            logger.info("Handling ClientRequest from client {}: timestamp {}, operation {}",
-                    clientId, timestamp, operation.getOpCase());
-
-//            executorManager.submitStateTransition(() -> {
-//                logger.info("Entering state transition for ClientRequest from client {}: timestamp {}",
-//                        clientId, timestamp);
-//                if (timestamp <= state.lastReplyTimestamp(clientId)) {
-//                    logger.info("Ignoring stale ClientRequest from client {}: timestamp {}", clientId, timestamp);
-//                    // TODO: resend cached reply
-//                    return;
-//                }
-//
-//                if (!state.appendServerMessage(request)) {
-//                    logger.info("Duplicate ClientRequest from client {}: timestamp {}, ignoring",
-//                            clientId, timestamp);
-//                    return;
-//                }
-//                // TODO: refresh liveness timer
-//
-//                if (!state.isPrimary()) {
-//                    String primaryServerId = state.getPrimaryServerId();
-//                    logger.info("Forwarding ClientRequest from client {} to primary server {}", clientId, primaryServerId);
-//                    sender.forwardClientRequest(primaryServerId, request);
-//                    return;
-//                }
-//
-//                // initiate PBFT protocol
-//                prePrepareSender.attemptPrePrepare(request);
-//            });
-
-
-            // await consensus
-            // execute operation in request
-            // send ClientReply
-
-//            int serverNumber = Integer.parseInt(nodeId.substring(1));
-//            logger.info("Moved out of state transition for ClientRequest from client {}: timestamp {}",
-//                    clientId, timestamp);
-
-            MessageServiceOuterClass.OperationResult result = state.executeOperation(operation);
-            logger.info("Executed operation for ClientRequest from client {}: timestamp {}, result {}",
-                    clientId, timestamp, result);
-
             MessageServiceOuterClass.ClientReply reply = MessageServiceOuterClass.ClientReply.newBuilder()
                     .setViewNumber(1L)
                     .setTimestamp(timestamp)
@@ -113,10 +84,8 @@ public class ServerNode extends Node {
                     .setServerId(nodeId)
                     .setResult(result)
                     .build();
-            sender.sendClientReply(clientId, reply);
+            clientReplySender.sendClientReply(clientId, reply);
         });
-
-
     }
 
     public void handlePrePrepare(MessageServiceOuterClass.PrePrepareRequest prePrepareRequest) {
@@ -125,7 +94,31 @@ public class ServerNode extends Node {
         });
     }
 
-    public static void main(String[] args) {
+    public void handlePrepare(MessageServiceOuterClass.PrepareMessage prepareMessage) {
+        executorManager.submitMessageProcessing(() -> {
+            prepareHandler.handle(prepareMessage);
+        });
+    }
+
+    public void handleCommit(MessageServiceOuterClass.CommitMessage commitMessage) {
+        executorManager.submitMessageProcessing(() -> {
+            // TODO: add commit handler
+        });
+    }
+
+    public void shutdown() {
+        logger.info("Shutting down server node {}", nodeId);
+        clientRequestSender.shutdown();
+        clientReplySender.shutdown();
+        prePrepareSender.shutdown();
+        prepareSender.shutdown();
+        commitSender.shutdown();
+        receiver.shutdown();
+        super.shutdown();
+        logger.info("Server node {} shut down complete", nodeId);
+    }
+
+    static void main(String[] args) {
 
         if (args.length != 1) {
             System.err.println("Node ID argument required");
@@ -140,7 +133,7 @@ public class ServerNode extends Node {
         // Register shutdown hook BEFORE starting
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             logger.info("Shutdown hook triggered");
-            serverNode.shutdown(serverNode.sender, serverNode.receiver);
+            serverNode.shutdown();
         }, nodeId + "-shutdown-hook"));
 
         serverNode.start(serverNode.receiver);

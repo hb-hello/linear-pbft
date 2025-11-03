@@ -4,6 +4,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.example.MessageServiceOuterClass;
 import org.example.consensus.senders.CommitSender;
+import org.example.consensus.senders.PrepareSender;
 import org.example.serverstate.ServerState;
 
 import java.util.Objects;
@@ -13,11 +14,13 @@ public class PrepareHandler {
 
     private final ServerState state;
     private final int quorumSize;
+    private final PrepareSender prepareSender;
     private final CommitSender commitSender;
 
-    public PrepareHandler(ServerState state, int quorumSize, CommitSender commitSender) {
+    public PrepareHandler(ServerState state, int quorumSize, PrepareSender prepareSender, CommitSender commitSender) {
         this.quorumSize = quorumSize;
         this.state = state;
+        this.prepareSender = prepareSender;
         this.commitSender = commitSender;
     }
 
@@ -36,17 +39,28 @@ public class PrepareHandler {
 
     public void handle(MessageServiceOuterClass.PrepareMessage prepareMessage) {
 
+        long viewNumber = prepareMessage.getViewNumber();
+        long sequenceNumber = prepareMessage.getSequenceNumber();
+
         if (!isValid(prepareMessage)) {
             logger.info("Invalid Prepare message from {}, ignoring Prepare for view {} seq {}",
                     prepareMessage.getSignerId(),
-                    prepareMessage.getViewNumber(),
-                    prepareMessage.getSequenceNumber());
+                    viewNumber,
+                    sequenceNumber);
             return;
         }
 
         state.appendServerMessage(prepareMessage);
 
-        commitSender.attemptCommit(prepareMessage.getViewNumber(), prepareMessage.getSequenceNumber(),
+        if(!state.isPrepared(viewNumber, sequenceNumber, quorumSize)) {
+            logger.info("Cannot send Commit / Aggregated Prepare for view {} seq {}: not prepared",
+                    viewNumber, sequenceNumber);
+            return;
+        }
+
+        if (state.isCollector() && !prepareMessage.getIsAggregated()) prepareSender.broadcastAggregatedPrepare(viewNumber, sequenceNumber);
+
+        commitSender.sendCommit(viewNumber, sequenceNumber,
                 prepareMessage.getDigest().toByteArray());
     }
 }

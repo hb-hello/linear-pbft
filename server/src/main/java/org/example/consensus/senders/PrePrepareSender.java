@@ -77,7 +77,7 @@ public class PrePrepareSender extends MessageSender {
         logger.info("Broadcasting PrePrepare for seqNum {} in view {}",
                 request.getPrePrepareMessage().getSequenceNumber(),
                 request.getPrePrepareMessage().getViewNumber());
-        broadcastWithoutSigning(request, (stub, signed) ->
+        broadcast(request, (stub, signed) ->
                 stub.prePrepare((MessageServiceOuterClass.PrePrepareRequest) signed));
     }
 

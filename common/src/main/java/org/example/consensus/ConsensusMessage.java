@@ -108,5 +108,19 @@ public class ConsensusMessage<K, V> {
         return false;
     }
 
+    public V getQuorumValue() {
+
+        if (!future.isDone()) {
+            throw new IllegalStateException("Quorum not yet reached for requestId=" + requestId);
+        }
+
+        try {
+            Message msg = future.get();
+            return valueExtractor.apply(msg);
+        } catch (InterruptedException | ExecutionException e) {
+            throw new RuntimeException("Failed to get quorum value for requestId=" + requestId, e);
+        }
+    }
+
     public K requestId() { return requestId; }
 }

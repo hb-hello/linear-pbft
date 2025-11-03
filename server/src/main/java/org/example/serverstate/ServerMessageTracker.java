@@ -1,9 +1,12 @@
 package org.example.serverstate;
 
+import com.google.protobuf.ByteString;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.example.consensus.ServerConsensusMessageTracker;
 import org.example.messaging.ServerMessage;
 
+import java.io.UnsupportedEncodingException;
 import java.util.*;
 
 /**
@@ -25,7 +28,7 @@ public class ServerMessageTracker {
     private final Map<String, ServerMessage> index = new HashMap<>();
 
     // Consensus tracker: tracks messages by messageIndex (without sender) for quorum checking
-    private final org.example.consensus.ServerConsensusMessageTracker consensusTracker = new org.example.consensus.ServerConsensusMessageTracker();
+    private final ServerConsensusMessageTracker consensusTracker = new ServerConsensusMessageTracker();
 
 
     /**
@@ -85,6 +88,83 @@ public class ServerMessageTracker {
         return met;
     }
 
+    /**
+     * Get the signatures of messages that contributed to reaching quorum for a given message index.
+     * Uses the consensus tracker to identify which messages (with their sender IDs) were part of the consensus,
+     * then retrieves their signatures from the tracked messages.
+     *
+     * @param messageIndex The message index (e.g., "PrepareMessage:1:10")
+     * @return Map of sender ID to signature ByteString from messages that contributed to quorum, or empty map if none
+     */
+    public Map<String, ByteString> getQuorumSignatures(String messageIndex) {
+        // Get the set of messageIndexWithSender from the consensus tracker
+        Set<String> messageIndicesWithSender = consensusTracker.getMessageIndicesWithSender(messageIndex);
+
+        logger.info("Getting quorum signatures for {}: found {} messages in consensus",
+                messageIndex, messageIndicesWithSender.size());
+
+        // Fetch the actual messages and extract their sender IDs and signatures
+        Map<String, ByteString> signaturesBySender = new HashMap<>();
+        for (String messageIndexWithSender : messageIndicesWithSender) {
+            ServerMessage msg = index.get(messageIndexWithSender);
+            if (msg != null) {
+                Optional<String> senderId = msg.getSenderId();
+                Optional<ByteString> signature = msg.getSignature();
+
+                if (senderId.isPresent() && signature.isPresent()) {
+                    signaturesBySender.put(senderId.get(), signature.get());
+                } else {
+                    logger.warn("Message with index {} missing sender ID or signature", messageIndexWithSender);
+                }
+            } else {
+                logger.warn("Message with index {} not found in tracker, but was in consensus", messageIndexWithSender);
+            }
+        }
+
+        logger.info("Retrieved {} signatures for message index {}", signaturesBySender.size(), messageIndex);
+        return signaturesBySender;
+    }
+
+    /**
+     * Get the signatures of messages that contributed to reaching quorum for a specific message type/view/sequence.
+     *
+     * @param messageType The message type (e.g., "PrepareMessage", "CommitMessage")
+     * @param viewNumber The view number
+     * @param sequenceNumber The sequence number
+     * @return Map of sender ID to signature ByteString from messages that contributed to quorum, or empty map if none
+     */
+    public Map<String, ByteString> getQuorumSignatures(String messageType, long viewNumber, long sequenceNumber) {
+        String messageIndex = String.format("%s:%d:%d", messageType, viewNumber, sequenceNumber);
+        return getQuorumSignatures(messageIndex);
+    }
+
+    public Map<String, ByteString> checkQuorumAndGetSignatures(String messageType, long viewNumber, long sequenceNumber, int quorumSize) {
+        String messageIndex = String.format("%s:%d:%d", messageType, viewNumber, sequenceNumber);
+        if (checkMessageQuorum(messageIndex, quorumSize)) {
+            return getQuorumSignatures(messageIndex);
+        } else {
+            return Collections.emptyMap();
+        }
+    }
+
+    public Map<String, ByteString> checkQuorumAndGetSignatures(ServerMessage serverMessage, int quorumSize) {
+        String messageIndex = serverMessage.getMessageIndex();
+        if (checkMessageQuorum(messageIndex, quorumSize)) {
+            return getQuorumSignatures(messageIndex);
+        } else {
+            return Collections.emptyMap();
+        }
+    }
+
+    public ByteString getQuorumValue(String messageType, long viewNumber, long sequenceNumber) {
+        try {
+            String messageIndex = String.format("%s:%d:%d", messageType, viewNumber, sequenceNumber);
+            return ByteString.copyFrom(consensusTracker.getQuorumValue(messageIndex), "UTF-8") ;
+        } catch (UnsupportedEncodingException e) {
+            logger.error("Error getting quorum value for {}:{}:{}", messageType, viewNumber, sequenceNumber, e);
+            return null;
+        }
+    }
 
     /**
      * Find a message by its index string.

@@ -1,5 +1,6 @@
 package org.example.serverstate;
 
+import com.google.protobuf.ByteString;
 import com.google.protobuf.Message;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -9,6 +10,7 @@ import org.example.messaging.ServerMessage;
 import org.example.statemachine.BankStateMachine;
 
 import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.*;
 
 import static org.example.Node.computePrimaryServerId;
@@ -275,6 +277,14 @@ public final class ServerState {
     // every time a commit is received, check quorum for matching commits
     public boolean checkMessageQuorum(Message message, int quorumSize) {
         return runSync(() -> serverMessageTracker.checkMessageQuorum(ServerMessage.wrap(message), quorumSize));
+    }
+
+    public Map<String, ByteString> getQuorumSignatures(String messageType, long viewNumber, long sequenceNumber) {
+        return runSync(() -> serverMessageTracker.getQuorumSignatures(messageType, viewNumber, sequenceNumber));
+    }
+
+    public ByteString getQuorumDigest(String messageType, long viewNumber, long sequenceNumber) {
+        return runSync(() -> serverMessageTracker.getQuorumValue(messageType, viewNumber, sequenceNumber));
     }
 
     public ServerMessageTracker getServerMessageTracker() {

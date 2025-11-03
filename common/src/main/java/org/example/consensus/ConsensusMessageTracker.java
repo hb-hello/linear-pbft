@@ -23,7 +23,7 @@ public class ConsensusMessageTracker<K, V> {
 
     private static final Logger logger = LogManager.getLogger(ConsensusMessageTracker.class);
 
-    private final ConcurrentMap<K, ConsensusMessage<K, V>> tracked = new ConcurrentHashMap<>();
+    protected final ConcurrentMap<K, ConsensusMessage<K, V>> tracked = new ConcurrentHashMap<>();
 
     private final Function<Message, K> requestIdExtractor;
     private final Function<Message, String> responderIdExtractor;
@@ -125,12 +125,29 @@ public class ConsensusMessageTracker<K, V> {
         return state.checkQuorum(quorumSize);
     }
 
+    public V getQuorumValue(K requestId) {
+        ConsensusMessage<K, V> state = tracked.get(requestId);
+        if (state == null) return null;
+        return state.getQuorumValue();
+    }
+
     /**
      * Clear all tracked consensus messages.
      */
     public void clear() {
         tracked.clear();
         logger.info("Cleared all tracked consensus messages.");
+    }
+
+    /**
+     * Get the ConsensusMessage for a given request ID.
+     * Protected method to allow subclasses to access tracked messages.
+     *
+     * @param requestId the request identifier
+     * @return the ConsensusMessage, or null if not tracked
+     */
+    protected ConsensusMessage<K, V> getConsensusMessage(K requestId) {
+        return tracked.get(requestId);
     }
 
     /** Simple status DTO */

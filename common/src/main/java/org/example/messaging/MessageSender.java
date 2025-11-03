@@ -22,7 +22,7 @@ public class MessageSender {
     protected final MessageAuthenticator auth;
     private final AtomicBoolean active;
 
-    protected MessageSender(String nodeId, CommunicationLogger commLogger, MessageAuthenticator auth) {
+    public MessageSender(String nodeId, CommunicationLogger commLogger, MessageAuthenticator auth) {
         this.nodeId = nodeId;
         this.commLogger = commLogger;
         this.stubManager = new StubManager(nodeId);
@@ -64,11 +64,10 @@ public class MessageSender {
     protected void signWithAggregateTSSAndSend(String targetNodeId, Message message, BiConsumer<MessageServiceGrpc.MessageServiceFutureStub, Message> method, Map<String, ByteString> partialSignatures) {
         ensureActive();
         Message signedMessage = auth.signWithAggregateTss(message, partialSignatures);
-        MessageServiceGrpc.MessageServiceFutureStub stub = stubManager.getFutureStub(targetNodeId);
-        method.accept(stub, signedMessage);
+        send(targetNodeId, signedMessage, method);
     }
 
-    protected void broadcastWithoutSigning(Message message, BiConsumer<MessageServiceGrpc.MessageServiceFutureStub, Message> method) {
+    protected void broadcast(Message message, BiConsumer<MessageServiceGrpc.MessageServiceFutureStub, Message> method) {
         ensureActive();
         for (String targetNodeId : Config.getServerIdsExcept(nodeId)) {
             MessageServiceGrpc.MessageServiceFutureStub stub = stubManager.getFutureStub(targetNodeId);
@@ -80,21 +79,13 @@ public class MessageSender {
         ensureActive();
         Message signedMessage = auth.signWithTSS(message);
         logger.info("Signed broadcast message with TSS: {}", message.getClass());
-        for (String targetNodeId : Config.getServerIdsExcept(nodeId)) {
-            logger.info("Broadcasting signed message to node {}: {}", targetNodeId, message.getClass());
-            MessageServiceGrpc.MessageServiceFutureStub stub = stubManager.getFutureStub(targetNodeId);
-            method.accept(stub, signedMessage);
-            logger.info("Message broadcasted to node {}: {}", targetNodeId, message.getClass());
-        }
+        broadcast(signedMessage, method);
     }
 
     protected void broadcastWithAggregateTSS(Message message, BiConsumer<MessageServiceGrpc.MessageServiceFutureStub, Message> method, Map<String, ByteString> partialSignatures) {
         ensureActive();
         Message signedMessage = auth.signWithAggregateTss(message, partialSignatures);
-        for (String targetNodeId : Config.getServerIdsExcept(nodeId)) {
-            MessageServiceGrpc.MessageServiceFutureStub stub = stubManager.getFutureStub(targetNodeId);
-            method.accept(stub, signedMessage);
-        }
+        broadcast(signedMessage, method);
     }
 
     public void shutdown() {

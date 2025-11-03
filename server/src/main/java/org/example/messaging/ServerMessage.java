@@ -63,6 +63,14 @@ public interface ServerMessage {
     }
 
     /**
+     * Extract signature if present in the message.
+     * Handles both direct fields and nested fields (e.g., PrePrepareRequest.pre_prepare_message.signature).
+     */
+    default Optional<ByteString> getSignature() {
+        return extractBytesField("signature");
+    }
+
+    /**
      * Extract client ID if present in the message (for ClientRequest).
      */
     default Optional<String> getClientId() {

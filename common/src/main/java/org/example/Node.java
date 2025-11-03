@@ -105,12 +105,7 @@ public class Node {
         }
     }
 
-    public void shutdown(MessageSender sender, MessageReceiver receiver) {
-        logger.info("Shutting down node {}", nodeId);
-        receiver.shutdown();
-        sender.shutdown();
+    public void shutdown() {
         executorManager.shutdown();
-
-        logger.info("Node {} shutdown complete", nodeId);
     }
 }

@@ -20,15 +20,9 @@ public class CommitSender extends MessageSender {
         this.quorumSize = quorumSize;
     }
 
-    public void attemptCommit(long viewNumber, long sequenceNumber, byte[] digest) {
+    public void sendCommit(long viewNumber, long sequenceNumber, byte[] digest) {
         logger.info("Preparing to send Commit for view {} seq {}",
                 viewNumber, sequenceNumber);
-
-        if(!state.isPrepared(viewNumber, sequenceNumber, quorumSize)) {
-            logger.info("Cannot send Commit for view {} seq {}: not prepared",
-                    viewNumber, sequenceNumber);
-            return;
-        }
 
         // Build Commit message
         org.example.MessageServiceOuterClass.CommitMessage commitMsg =

@@ -6,6 +6,8 @@ import org.example.messaging.ServerMessage;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.util.Map;
+
 import static org.junit.jupiter.api.Assertions.*;
 
 class ServerMessageTrackerTest {
@@ -819,6 +821,233 @@ class ServerMessageTrackerTest {
         // Verify quorum count is reset
         assertFalse(tracker.checkMessageQuorum(serverMsg, 1),
                 "Quorum count should be 0 after clear");
+    }
+
+    // ===== getQuorumSignatures Tests =====
+
+    @Test
+    void testGetQuorumSignatures_withMatchingMessages() {
+        // Add 3 Prepare messages with same view/seq/digest but different signers and signatures
+        ByteString sig1 = ByteString.copyFromUtf8("signature-from-n1");
+        ByteString sig2 = ByteString.copyFromUtf8("signature-from-n2");
+        ByteString sig3 = ByteString.copyFromUtf8("signature-from-n3");
+
+        MessageServiceOuterClass.PrepareMessage prepare1 = MessageServiceOuterClass.PrepareMessage.newBuilder()
+                .setViewNumber(1)
+                .setSequenceNumber(10)
+                .setDigest(ByteString.copyFromUtf8("common-digest"))
+                .setIsAggregated(false)
+                .setSignerId("n1")
+                .setSignature(sig1)
+                .build();
+        tracker.append(ServerMessage.wrap(prepare1));
+
+        MessageServiceOuterClass.PrepareMessage prepare2 = MessageServiceOuterClass.PrepareMessage.newBuilder()
+                .setViewNumber(1)
+                .setSequenceNumber(10)
+                .setDigest(ByteString.copyFromUtf8("common-digest"))
+                .setIsAggregated(false)
+                .setSignerId("n2")
+                .setSignature(sig2)
+                .build();
+        tracker.append(ServerMessage.wrap(prepare2));
+
+        MessageServiceOuterClass.PrepareMessage prepare3 = MessageServiceOuterClass.PrepareMessage.newBuilder()
+                .setViewNumber(1)
+                .setSequenceNumber(10)
+                .setDigest(ByteString.copyFromUtf8("common-digest"))
+                .setIsAggregated(false)
+                .setSignerId("n3")
+                .setSignature(sig3)
+                .build();
+        tracker.append(ServerMessage.wrap(prepare3));
+
+        // Get quorum signatures using messageIndex (without sender)
+        Map<String, ByteString> signatures = tracker.getQuorumSignatures("PrepareMessage:1:10");
+
+        // Verify we got all 3 signatures mapped by sender ID
+        assertNotNull(signatures, "Signatures map should not be null");
+        assertEquals(3, signatures.size(), "Should have 3 signatures from 3 matching messages");
+        assertEquals(sig1, signatures.get("n1"), "Should have signature from n1");
+        assertEquals(sig2, signatures.get("n2"), "Should have signature from n2");
+        assertEquals(sig3, signatures.get("n3"), "Should have signature from n3");
+    }
+
+    @Test
+    void testGetQuorumSignatures_withMessageTypeViewSeq() {
+        // Test the convenience overload that takes messageType, viewNumber, sequenceNumber
+        ByteString sig1 = ByteString.copyFromUtf8("sig-a");
+        ByteString sig2 = ByteString.copyFromUtf8("sig-b");
+
+        MessageServiceOuterClass.CommitMessage commit1 = MessageServiceOuterClass.CommitMessage.newBuilder()
+                .setViewNumber(2)
+                .setSequenceNumber(20)
+                .setDigest(ByteString.copyFromUtf8("digest"))
+                .setSignerId("n1")
+                .setSignature(sig1)
+                .build();
+        tracker.append(ServerMessage.wrap(commit1));
+
+        MessageServiceOuterClass.CommitMessage commit2 = MessageServiceOuterClass.CommitMessage.newBuilder()
+                .setViewNumber(2)
+                .setSequenceNumber(20)
+                .setDigest(ByteString.copyFromUtf8("digest"))
+                .setSignerId("n2")
+                .setSignature(sig2)
+                .build();
+        tracker.append(ServerMessage.wrap(commit2));
+
+        // Get signatures using the overload
+        Map<String, ByteString> signatures = tracker.getQuorumSignatures("CommitMessage", 2L, 20L);
+
+        assertEquals(2, signatures.size(), "Should have 2 signatures");
+        assertEquals(sig1, signatures.get("n1"), "Should have signature from n1");
+        assertEquals(sig2, signatures.get("n2"), "Should have signature from n2");
+    }
+
+    @Test
+    void testGetQuorumSignatures_noMatchingMessages_returnsEmptyMap() {
+        // Add a message
+        MessageServiceOuterClass.PrepareMessage prepare = MessageServiceOuterClass.PrepareMessage.newBuilder()
+                .setViewNumber(1)
+                .setSequenceNumber(10)
+                .setDigest(ByteString.copyFromUtf8("digest"))
+                .setSignerId("n1")
+                .setSignature(ByteString.copyFromUtf8("sig"))
+                .build();
+        tracker.append(ServerMessage.wrap(prepare));
+
+        // Try to get signatures for a different message index that doesn't exist
+        Map<String, ByteString> signatures = tracker.getQuorumSignatures("PrepareMessage:99:99");
+
+        assertNotNull(signatures, "Should return non-null map");
+        assertTrue(signatures.isEmpty(), "Should return empty map when no matching messages");
+    }
+
+    @Test
+    void testGetQuorumSignatures_withMismatchedDigests() {
+        // Add messages with same view/seq but DIFFERENT digests
+        ByteString sig1 = ByteString.copyFromUtf8("sig1");
+        ByteString sig2 = ByteString.copyFromUtf8("sig2");
+
+        MessageServiceOuterClass.PrepareMessage prepare1 = MessageServiceOuterClass.PrepareMessage.newBuilder()
+                .setViewNumber(3)
+                .setSequenceNumber(30)
+                .setDigest(ByteString.copyFromUtf8("digest-A"))
+                .setSignerId("n1")
+                .setSignature(sig1)
+                .build();
+        tracker.append(ServerMessage.wrap(prepare1));
+
+        MessageServiceOuterClass.PrepareMessage prepare2 = MessageServiceOuterClass.PrepareMessage.newBuilder()
+                .setViewNumber(3)
+                .setSequenceNumber(30)
+                .setDigest(ByteString.copyFromUtf8("digest-B"))  // Different digest
+                .setSignerId("n2")
+                .setSignature(sig2)
+                .build();
+        tracker.append(ServerMessage.wrap(prepare2));
+
+        // Get signatures - should only get the one(s) with the majority digest
+        Map<String, ByteString> signatures = tracker.getQuorumSignatures("PrepareMessage:3:30");
+
+        // Since they have different digests, only messages with the same digest are grouped
+        // Each digest group has count of 1, so we get whichever was processed
+        assertNotNull(signatures, "Should return non-null map");
+        // The result depends on which digest the consensus tracker considers
+        // But there should be signatures returned (at least 1)
+        assertFalse(signatures.isEmpty(), "Should have at least some signatures");
+    }
+
+    @Test
+    void testGetQuorumSignatures_afterClear_returnsEmpty() {
+        // Add messages
+        MessageServiceOuterClass.PrepareMessage prepare = MessageServiceOuterClass.PrepareMessage.newBuilder()
+                .setViewNumber(4)
+                .setSequenceNumber(40)
+                .setDigest(ByteString.copyFromUtf8("digest"))
+                .setSignerId("n1")
+                .setSignature(ByteString.copyFromUtf8("sig"))
+                .build();
+        tracker.append(ServerMessage.wrap(prepare));
+
+        // Verify we can get signatures
+        Map<String, ByteString> signaturesBeforeClear = tracker.getQuorumSignatures("PrepareMessage:4:40");
+        assertFalse(signaturesBeforeClear.isEmpty(), "Should have signatures before clear");
+
+        // Clear tracker
+        tracker.clear();
+
+        // Try to get signatures after clear
+        Map<String, ByteString> signaturesAfterClear = tracker.getQuorumSignatures("PrepareMessage:4:40");
+        assertNotNull(signaturesAfterClear, "Should return non-null map");
+        assertTrue(signaturesAfterClear.isEmpty(), "Should return empty map after clear");
+    }
+
+    @Test
+    void testGetQuorumSignatures_multipleMessageTypes_separated() {
+        // Add Prepare and Commit messages with same view/seq but they should be tracked separately
+        ByteString prepareSig = ByteString.copyFromUtf8("prepare-sig");
+        ByteString commitSig = ByteString.copyFromUtf8("commit-sig");
+
+        MessageServiceOuterClass.PrepareMessage prepare = MessageServiceOuterClass.PrepareMessage.newBuilder()
+                .setViewNumber(5)
+                .setSequenceNumber(50)
+                .setDigest(ByteString.copyFromUtf8("digest"))
+                .setSignerId("n1")
+                .setSignature(prepareSig)
+                .build();
+        tracker.append(ServerMessage.wrap(prepare));
+
+        MessageServiceOuterClass.CommitMessage commit = MessageServiceOuterClass.CommitMessage.newBuilder()
+                .setViewNumber(5)
+                .setSequenceNumber(50)
+                .setDigest(ByteString.copyFromUtf8("digest"))
+                .setSignerId("n1")
+                .setSignature(commitSig)
+                .build();
+        tracker.append(ServerMessage.wrap(commit));
+
+        // Get Prepare signatures - should only get prepare signature mapped by sender ID
+        Map<String, ByteString> prepareSignatures = tracker.getQuorumSignatures("PrepareMessage:5:50");
+        assertEquals(1, prepareSignatures.size(), "Should have 1 Prepare signature");
+        assertEquals(prepareSig, prepareSignatures.get("n1"), "Should have Prepare signature from n1");
+        assertNotEquals(commitSig, prepareSignatures.get("n1"), "Should not have Commit signature");
+
+        // Get Commit signatures - should only get commit signature mapped by sender ID
+        Map<String, ByteString> commitSignatures = tracker.getQuorumSignatures("CommitMessage:5:50");
+        assertEquals(1, commitSignatures.size(), "Should have 1 Commit signature");
+        assertEquals(commitSig, commitSignatures.get("n1"), "Should have Commit signature from n1");
+        assertNotEquals(prepareSig, commitSignatures.get("n1"), "Should not have Prepare signature");
+    }
+
+    @Test
+    void testGetQuorumValue_withQuorumReached() {
+        // Add 3 Prepare messages with same view/seq/digest from different signers
+        ByteString digest = ByteString.copyFromUtf8("test-digest");
+        for (int i = 1; i <= 3; i++) {
+            MessageServiceOuterClass.PrepareMessage prepareMsg = MessageServiceOuterClass.PrepareMessage.newBuilder()
+                    .setViewNumber(1)
+                    .setSequenceNumber(10)
+                    .setDigest(digest)  // Same digest
+                    .setIsAggregated(false)
+                    .setSignerId("n" + i)  // Different signers
+                    .setSignature(ByteString.copyFromUtf8("sig" + i))
+                    .build();
+
+            tracker.append(ServerMessage.wrap(prepareMsg));
+        }
+
+        // Check that quorum is reached
+        assertTrue(tracker.checkMessageQuorum(ServerMessage.PREPARE, 1, 10, 3),
+                "Quorum should be reached with 3 messages");
+
+        // Get the quorum value
+        ByteString quorumValue = tracker.getQuorumValue(ServerMessage.PREPARE, 1, 10);
+
+        // Verify the quorum value matches the digest
+        assertNotNull(quorumValue, "Quorum value should not be null");
+        assertEquals(digest, quorumValue, "Quorum value should match the consensus digest");
     }
 }
 
