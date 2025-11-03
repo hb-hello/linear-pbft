@@ -11,6 +11,7 @@ import org.example.statemachine.BankStateMachine;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.*;
 
 import static org.example.Node.computePrimaryServerId;
@@ -291,8 +292,21 @@ public final class ServerState {
         return serverMessageTracker;
     }
 
-    public ServerMessage findPrePrepare(long viewNumber, long sequenceNumber, String senderId) {
-        return runSync(() -> serverMessageTracker.findMessage(ServerMessage.PRE_PREPARE, viewNumber, sequenceNumber, senderId));
+    public ServerMessage findPrePrepare(long viewNumber, long sequenceNumber) {
+        return runSync(() -> serverMessageTracker.findMessage(ServerMessage.PRE_PREPARE, viewNumber, sequenceNumber, primaryServerId));
+    }
+
+    public ByteString getPrePrepareDigest(long viewNumber, long sequenceNumber) {
+        return runSync(() -> {
+            ServerMessage prePrepareMsg = findPrePrepare(viewNumber, sequenceNumber);
+            if (prePrepareMsg != null) {
+                MessageServiceOuterClass.PrePrepareMessage prePrepareMessage =
+                        (MessageServiceOuterClass.PrePrepareMessage) prePrepareMsg.getMessage();
+                return prePrepareMessage.getDigest();
+            } else {
+                return null;
+            }
+        });
     }
 
     public boolean hasPrePrepare(long viewNumber, long sequenceNumber) {
@@ -315,7 +329,11 @@ public final class ServerState {
 
             int quorumSizeExcludingPrePrepare = quorumSize - 1;
 
-            return serverMessageTracker.checkMessageQuorum(ServerMessage.PREPARE, viewNumber, sequenceNumber, quorumSizeExcludingPrePrepare);
+            if (serverMessageTracker.checkMessageQuorum(ServerMessage.PREPARE, viewNumber, sequenceNumber, quorumSizeExcludingPrePrepare)) {
+                // check if pre-prepare digest matches the prepare digests
+                ByteString digest = getQuorumDigest(ServerMessage.PREPARE, viewNumber, sequenceNumber);
+                return Objects.equals(digest, getPrePrepareDigest(viewNumber, sequenceNumber));
+            } else return false;
         });
     }
 
@@ -337,7 +355,13 @@ public final class ServerState {
                 return false;
             }
 
-            return serverMessageTracker.checkMessageQuorum(ServerMessage.COMMIT, viewNumber, sequenceNumber, quorumSize);
+            if (serverMessageTracker.checkMessageQuorum(ServerMessage.COMMIT, viewNumber, sequenceNumber, quorumSize)) {
+                // check if pre-prepare digest matches the commit digests
+                ByteString digest = getQuorumDigest(ServerMessage.COMMIT, viewNumber, sequenceNumber);
+                return Objects.equals(digest, getPrePrepareDigest(viewNumber, sequenceNumber));
+            } else {
+                return false;
+            }
         });
     }
 

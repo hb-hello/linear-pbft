@@ -117,7 +117,7 @@ class PrePrepareHandlerTest {
         handler.handle(prePrepareRequest);
 
         // Assert: PrePrepare should be added to state (as PrePrepareMessage, not PrePrepareRequest)
-        ServerMessage foundMessage = state.findPrePrepare(1L, 1L, "n1");
+        ServerMessage foundMessage = state.findPrePrepare(1L, 1L);
         assertNotNull(foundMessage, "PrePrepare should be added to state");
         assertEquals("PrePrepareMessage", foundMessage.getMessageType());
         assertEquals(1L, foundMessage.getViewNumber().orElse(-1L));
@@ -183,7 +183,7 @@ class PrePrepareHandlerTest {
                 createPrePrepareRequest(1L, 1L, clientRequest);
 
         handler.handle(prePrepareRequest);
-        ServerMessage first = state.findPrePrepare(1L, 1L, "n1");
+        ServerMessage first = state.findPrePrepare(1L, 1L);
         assertNotNull(first, "First PrePrepare should be added");
 
         // Get the current size of messages

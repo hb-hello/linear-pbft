@@ -37,7 +37,7 @@ public class PrePrepareHandler {
     private boolean isValid(MessageServiceOuterClass.PrePrepareMessage prePrepareMessage) {
         try {
             state.ensureInView(prePrepareMessage.getViewNumber());
-            ServerMessage alreadyLoggedPrePrepare = state.findPrePrepare(prePrepareMessage.getViewNumber(), prePrepareMessage.getSequenceNumber(), prePrepareMessage.getSignerId());
+            ServerMessage alreadyLoggedPrePrepare = state.findPrePrepare(prePrepareMessage.getViewNumber(), prePrepareMessage.getSequenceNumber());
             if (alreadyLoggedPrePrepare != null && alreadyLoggedPrePrepare.getDigest().isPresent()) {
                 logger.info("Duplicate PrePrepare detected for view {} seq {}",
                         prePrepareMessage.getViewNumber(), prePrepareMessage.getSequenceNumber());
