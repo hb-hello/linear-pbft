@@ -201,6 +201,26 @@ public final class ServerState {
         return highWatermark;
     }
 
+    public void ensureInView(long viewNumber) {
+        runSync(() -> {
+            if (this.viewNumber != viewNumber) {
+                logger.warn("View mismatch: current view {}, expected view {}", this.viewNumber, viewNumber);
+                throw new IllegalStateException("Current view " + this.viewNumber + " does not match expected view " + viewNumber);
+            }
+        });
+    }
+
+    public void ensureInWatermarks(long sequenceNumber) {
+        runSync(() -> {
+            if (!seqNumBetweenWatermarks(sequenceNumber)) {
+                logger.warn("Sequence number {} out of watermarks (low: {}, high: {})",
+                        sequenceNumber, lowWatermark, highWatermark);
+                throw new IllegalStateException("Sequence number " + sequenceNumber +
+                        " out of watermarks (low: " + lowWatermark + ", high: " + highWatermark + ")");
+            }
+        });
+    }
+
     public Header snapshotHeader() {
         return runSync(() -> new Header(viewNumber, primaryServerId, isFaulty, seqNum, lastExecutedSeqNum));
     }
@@ -209,6 +229,7 @@ public final class ServerState {
 
     // Generic execute that delegates to the pluggable state machine
     public MessageServiceOuterClass.OperationResult executeOperation(MessageServiceOuterClass.Operation operation) {
+        logger.info("Executing operation of type: {}", operation.getOpCase());
         return runSync(() -> stateMachine.execute(operation));
     }
 
@@ -243,41 +264,71 @@ public final class ServerState {
 
     // Logs and buffers
 
-    public boolean appendServerMessage(ServerMessage msg) {
-        logger.info("Appending server message: {}", msg.toDetailedString());
-        return runSync(() -> serverMessageTracker.append(msg));
+    public boolean appendServerMessage(Message msg) {
+        ServerMessage serverMsg = ServerMessage.wrap(msg);
+        logger.info("Appending server message: {}", serverMsg.toDetailedString());
+        return runSync(() -> serverMessageTracker.append(serverMsg));
     }
 
-    public boolean appendServerMessage(Message msg) {
-        return appendServerMessage(ServerMessage.wrap(msg));
+    // every time a pre-prepare is received, check quorum for matching prepares
+    // every time a prepare is received, check quorum for matching prepares and commits
+    // every time a commit is received, check quorum for matching commits
+    public boolean checkMessageQuorum(Message message, int quorumSize) {
+        return runSync(() -> serverMessageTracker.checkMessageQuorum(ServerMessage.wrap(message), quorumSize));
     }
 
     public ServerMessageTracker getServerMessageTracker() {
         return serverMessageTracker;
     }
 
-    public ServerMessage findPrePrepare(long viewNumber, long sequenceNumber) {
-        return runSync(() -> serverMessageTracker.findPrePrepare(viewNumber, sequenceNumber));
+    public ServerMessage findPrePrepare(long viewNumber, long sequenceNumber, String senderId) {
+        return runSync(() -> serverMessageTracker.findMessage(ServerMessage.PRE_PREPARE, viewNumber, sequenceNumber, senderId));
     }
 
     public boolean hasPrePrepare(long viewNumber, long sequenceNumber) {
-        return runSync(() -> serverMessageTracker.findPrePrepare(viewNumber, sequenceNumber) != null);
+        return runSync(() -> serverMessageTracker.hasMessage(ServerMessage.PRE_PREPARE, viewNumber, sequenceNumber));
     }
 
-    public ServerMessage findPrepare(long viewNumber, long sequenceNumber) {
-        return runSync(() -> serverMessageTracker.findPrepare(viewNumber, sequenceNumber));
+    public ServerMessage findPrepare(long viewNumber, long sequenceNumber, String senderId) {
+        return runSync(() -> serverMessageTracker.findMessage(ServerMessage.PREPARE, viewNumber, sequenceNumber, senderId));
     }
 
     public boolean hasPrepare(long viewNumber, long sequenceNumber) {
-        return runSync(() -> serverMessageTracker.findPrepare(viewNumber, sequenceNumber) != null);
+        return runSync(() -> serverMessageTracker.hasMessage(ServerMessage.PREPARE, viewNumber, sequenceNumber));
     }
 
-    public ServerMessage findCommit(long viewNumber, long sequenceNumber) {
-        return runSync(() -> serverMessageTracker.findCommit(viewNumber, sequenceNumber));
+    public boolean isPrepared(long viewNumber, long sequenceNumber, int quorumSize) {
+        return runSync(() -> {
+            if (!hasPrePrepare(viewNumber, sequenceNumber)) {
+                return false;
+            }
+
+            int quorumSizeExcludingPrePrepare = quorumSize - 1;
+
+            return serverMessageTracker.checkMessageQuorum(ServerMessage.PREPARE, viewNumber, sequenceNumber, quorumSizeExcludingPrePrepare);
+        });
+    }
+
+    public ServerMessage findCommit(long viewNumber, long sequenceNumber, String senderId) {
+        return runSync(() -> serverMessageTracker.findMessage(ServerMessage.COMMIT, viewNumber, sequenceNumber, senderId));
     }
 
     public boolean hasCommit(long viewNumber, long sequenceNumber) {
-        return runSync(() -> serverMessageTracker.findCommit(viewNumber, sequenceNumber) != null);
+        return runSync(() -> serverMessageTracker.hasMessage(ServerMessage.COMMIT, viewNumber, sequenceNumber));
+    }
+
+    public boolean isCommitted(long viewNumber, long sequenceNumber, int quorumSize) {
+        return runSync(() -> {
+            if (!hasPrePrepare(viewNumber, sequenceNumber)) {
+                return false;
+            }
+
+            if (!isPrepared(viewNumber, sequenceNumber, quorumSize)) {
+                return false;
+            }
+
+            return serverMessageTracker.checkMessageQuorum(ServerMessage.COMMIT, viewNumber, sequenceNumber, quorumSize);
+        });
     }
 
     public void enqueueOutbound(Object msg) {

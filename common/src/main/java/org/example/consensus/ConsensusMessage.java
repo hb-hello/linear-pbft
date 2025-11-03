@@ -20,7 +20,6 @@ import java.util.function.Function;
 public class ConsensusMessage<K, V> {
 
     private final K requestId;
-    private final int required;
 
     private final Function<Message, K> requestIdExtractor;
     private final Function<Message, String> responderIdExtractor;
@@ -32,13 +31,10 @@ public class ConsensusMessage<K, V> {
     private final ConcurrentMap<V, Message> representative = new ConcurrentHashMap<>(); // value -> exemplar response
 
     public ConsensusMessage(K requestId,
-                            int required,
                             Function<Message, K> requestIdExtractor,
                             Function<Message, String> responderIdExtractor,
                             Function<Message, V> valueExtractor) {
-        if (required <= 0) throw new IllegalArgumentException("required must be > 0");
         this.requestId = Objects.requireNonNull(requestId, "requestId");
-        this.required = required;
         this.requestIdExtractor = Objects.requireNonNull(requestIdExtractor, "requestIdExtractor");
         this.responderIdExtractor = Objects.requireNonNull(responderIdExtractor, "responderIdExtractor");
         this.valueExtractor = Objects.requireNonNull(valueExtractor, "valueExtractor");
@@ -71,14 +67,9 @@ public class ConsensusMessage<K, V> {
 
         int count = valueCounts.get(value).get();
 //        System.out.println("Request " + requestId + " received value " + value + " count " + count);
-        if (count >= required) {
-            future.complete(representative.get(value));
-        }
     }
 
     public CompletableFuture<Message> future() { return future; }
-
-    public int required() { return required; }
 
     public int uniqueResponders() { return respondersSeen.size(); }
 
@@ -89,7 +80,33 @@ public class ConsensusMessage<K, V> {
         return copy;
     }
 
-    public boolean isCompleted() { return future.isDone(); }
+    /**
+     * Check if quorum is reached for any value. If quorum is met and future not yet completed,
+     * completes the future with the representative message for that value.
+     * Handles empty values (e.g., empty digests) as valid consensus values.
+     *
+     * @param required Number of matching responses required for consensus
+     * @return true if quorum is met, false otherwise
+     */
+    public boolean checkQuorum(int required) {
+        // Handle edge case: if required is 0 or negative, quorum is always met if we have any messages
+        if (required <= 0) {
+            return !valueCounts.isEmpty();
+        }
+
+        // Check if any value (including empty values like empty digests) has reached the required count
+        for (Map.Entry<V, AtomicInteger> entry : valueCounts.entrySet()) {
+            if (entry.getValue().get() >= required) {
+                // Complete future if not already done (handles null values gracefully)
+                Message representativeMsg = representative.get(entry.getKey());
+                if (representativeMsg != null) {
+                    future.complete(representativeMsg);
+                }
+                return true;
+            }
+        }
+        return false;
+    }
 
     public K requestId() { return requestId; }
 }

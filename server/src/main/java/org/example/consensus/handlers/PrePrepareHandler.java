@@ -35,27 +35,20 @@ public class PrePrepareHandler {
     }
 
     private boolean isValid(MessageServiceOuterClass.PrePrepareMessage prePrepareMessage) {
-        if (state.getViewNumber() != prePrepareMessage.getViewNumber()) {
-            logger.info("PrePrepare view number {} does not match current view {}",
-                    prePrepareMessage.getViewNumber(), state.getViewNumber());
+        try {
+            state.ensureInView(prePrepareMessage.getViewNumber());
+            ServerMessage alreadyLoggedPrePrepare = state.findPrePrepare(prePrepareMessage.getViewNumber(), prePrepareMessage.getSequenceNumber(), prePrepareMessage.getSignerId());
+            if (alreadyLoggedPrePrepare != null && alreadyLoggedPrePrepare.getDigest().isPresent()) {
+                logger.info("Duplicate PrePrepare detected for view {} seq {}",
+                        prePrepareMessage.getViewNumber(), prePrepareMessage.getSequenceNumber());
+                // do not accept if digest differs, can accept if digest is same as state, this takes care of de-dupe
+                return alreadyLoggedPrePrepare.getDigest().get().equals(prePrepareMessage.getDigest());
+            }
+            state.ensureInWatermarks(prePrepareMessage.getSequenceNumber());
+            return true;
+        } catch (IllegalStateException e) {
             return false;
         }
-
-        ServerMessage alreadyLoggedPrePrepare = state.findPrePrepare(prePrepareMessage.getViewNumber(), prePrepareMessage.getSequenceNumber());
-        if (alreadyLoggedPrePrepare != null && alreadyLoggedPrePrepare.getDigest().isPresent()) {
-            logger.info("Duplicate PrePrepare detected for view {} seq {}",
-                    prePrepareMessage.getViewNumber(), prePrepareMessage.getSequenceNumber());
-            // do not accept if digest differs, can accept if digest is same as state, this takes care of de-dupe
-            return alreadyLoggedPrePrepare.getDigest().get().equals(prePrepareMessage.getDigest());
-        }
-
-        if (!state.seqNumBetweenWatermarks(prePrepareMessage.getSequenceNumber())) {
-            logger.info("PrePrepare seq number {} out of watermarks (low: {}, high: {})",
-                    prePrepareMessage.getSequenceNumber(), state.getLowWatermark(), state.getHighWatermark());
-            return false;
-        }
-
-        return true;
 
     }
 
@@ -70,23 +63,24 @@ public class PrePrepareHandler {
 
         MessageServiceOuterClass.PrePrepareMessage prePrepareMessage = prePrepareRequest.getPrePrepareMessage();
 
-        if (!isValid(prePrepareMessage)) {
-            logger.info("Invalid PrePrepare message, ignoring");
-            return;
-        }
+        // run atomically
+        state.runSync(() -> {
+            if (!isValid(prePrepareMessage)) {
+                logger.info("Invalid PrePrepare message, ignoring");
+                return;
+            }
 
-        if (!state.appendServerMessage(prePrepareMessage)) {
-            logger.info("Duplicate PrePrepare message detected in state, ignoring");
-            return;
-        }
+            if (!state.appendServerMessage(prePrepareMessage)) {
+                logger.info("Duplicate PrePrepare message detected in state, ignoring");
+                return;
+            }
 
-        state.appendServerMessage(prePrepareRequest.getRequest());
+            state.appendServerMessage(prePrepareRequest.getRequest());
 
-        prepareSender.sendPrepare(state.getViewNumber(), prePrepareMessage.getSequenceNumber(),
-                prePrepareMessage.getDigest().toByteArray());
+            prepareSender.sendPrepare(state.getViewNumber(), prePrepareMessage.getSequenceNumber(),
+                    prePrepareMessage.getDigest().toByteArray());
+        });
     }
-
-
 
 
 }

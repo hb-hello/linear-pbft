@@ -19,6 +19,7 @@ public class PrepareSender extends MessageSender {
         this.state = state;
     }
 
+    // should be called from within state executor
     public void sendPrepare(long viewNumber, long sequenceNumber, byte[] digest) {
 
         logger.info("Preparing to send Prepare for view {} seq {}",
@@ -32,10 +33,18 @@ public class PrepareSender extends MessageSender {
                         .setDigest(com.google.protobuf.ByteString.copyFrom(digest))
                         .build();
 
-        state.appendServerMessage(prepareMsg);
+        // Sign the message first so that signer_id is set
+        MessageServiceOuterClass.PrepareMessage signedPrepareMsg =
+                (MessageServiceOuterClass.PrepareMessage) auth.sign(prepareMsg);
 
-        // Send PrepareRequest to all replicas
-        signAndSend(state.getCollectorServerId(), prepareMsg, (stub, signed) -> stub.prepare((MessageServiceOuterClass.PrepareMessage) signed));
+        // Append our own signed Prepare to state (we count our own vote in the quorum)
+        if (!state.appendServerMessage(signedPrepareMsg)) {
+            logger.warn("Failed to append Prepare message to state for view {} seq {}, likely due to duplicate check", viewNumber, sequenceNumber);
+            return;
+        };
+
+        // Send the signed PrepareRequest to the collector
+        send(state.getCollectorServerId(), signedPrepareMsg, (stub, signed) -> stub.prepare((MessageServiceOuterClass.PrepareMessage) signed));
         logger.info("Sent Prepare for view {} seq {}", viewNumber, sequenceNumber);
     }
 

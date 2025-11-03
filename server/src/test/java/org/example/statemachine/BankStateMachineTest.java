@@ -105,16 +105,32 @@ class BankStateMachineTest {
     }
 
     @Test
-    void reset_clears_mutations_and_snapshot_is_empty() {
+    void reset_restores_initial_balances() {
         BankStateMachine sm = newSMWithAB();
+
+        double a0 = initialBalances.get("A");
+        double b0 = initialBalances.get("B");
+
+        // Perform a transfer to mutate state
         sm.execute(transferOp("A", "B", 4.0));
-        assertFalse(sm.snapshot().isEmpty(), "State should be mutated after transfer");
 
+        Map<String, Double> afterTransfer = sm.snapshot();
+        assertFalse(afterTransfer.isEmpty(), "State should be mutated after transfer");
+        assertEquals(a0 - 4.0, afterTransfer.get("A"), 1e-9, "A should have 4.0 deducted");
+        assertEquals(b0 + 4.0, afterTransfer.get("B"), 1e-9, "B should have 4.0 added");
+
+        // Reset should restore initial balances
         sm.reset();
-        assertTrue(sm.snapshot().isEmpty(), "Snapshot should be empty after reset");
+        Map<String, Double> afterReset = sm.snapshot();
+        assertFalse(afterReset.isEmpty(), "Snapshot should not be empty after reset");
+        assertEquals(2, afterReset.size(), "Should have both accounts restored");
+        assertEquals(a0, afterReset.get("A"), 1e-9, "A should be restored to initial balance");
+        assertEquals(b0, afterReset.get("B"), 1e-9, "B should be restored to initial balance");
 
-        // After reset, accounts are absent; balance request should throw
-        assertThrows(IllegalArgumentException.class, () -> sm.execute(balanceOp("A")));
+        // After reset, balance request should work and return initial values
+        MessageServiceOuterClass.OperationResult resA = sm.execute(balanceOp("A"));
+        assertEquals(MessageServiceOuterClass.OperationResult.OpCase.BALANCE, resA.getOpCase());
+        assertEquals(a0, resA.getBalance(), 1e-9, "A should have initial balance after reset");
     }
 
     @Test

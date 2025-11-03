@@ -4,11 +4,12 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.example.config.Config;
 import org.example.consensus.handlers.PrePrepareHandler;
+import org.example.consensus.handlers.PrepareHandler;
+import org.example.consensus.senders.CommitSender;
 import org.example.consensus.senders.PrePrepareSender;
 import org.example.consensus.senders.PrepareSender;
 import org.example.messaging.ServerMessageReceiver;
 import org.example.messaging.ServerMessageSender;
-import org.example.messaging.ServerMessage;
 import org.example.serverstate.ServerState;
 
 public class ServerNode extends Node {
@@ -24,8 +25,10 @@ public class ServerNode extends Node {
 
     private final PrePrepareSender prePrepareSender;
     private final PrepareSender prepareSender;
+    private final CommitSender commitSender;
 
     private final PrePrepareHandler prePrepareHandler;
+    private final PrepareHandler prepareHandler;
 
     private final ServerState state;
 
@@ -37,8 +40,11 @@ public class ServerNode extends Node {
 
         this.prePrepareSender = new PrePrepareSender(serverId, state, commLogger, auth);
         this.prepareSender = new PrepareSender(serverId, state, commLogger, auth);
+        this.commitSender = new CommitSender(serverId, MAJORITY_COUNT, state, commLogger, auth);
 
         this.prePrepareHandler = new PrePrepareHandler(state, auth, prepareSender);
+        this.prepareHandler = new PrepareHandler(state, MAJORITY_COUNT, commitSender);
+
     }
 
     public void setActive(boolean active) {
@@ -60,32 +66,32 @@ public class ServerNode extends Node {
             logger.info("Handling ClientRequest from client {}: timestamp {}, operation {}",
                     clientId, timestamp, operation.getOpCase());
 
-            executorManager.submitStateTransition(() -> {
-                logger.info("Entering state transition for ClientRequest from client {}: timestamp {}",
-                        clientId, timestamp);
-                if (timestamp <= state.lastReplyTimestamp(clientId)) {
-                    logger.info("Ignoring stale ClientRequest from client {}: timestamp {}", clientId, timestamp);
-                    // TODO: resend cached reply
-                    return;
-                }
-
-                if (!state.appendServerMessage(ServerMessage.wrap(request))) {
-                    logger.info("Duplicate ClientRequest from client {}: timestamp {}, ignoring",
-                            clientId, timestamp);
-                    return;
-                }
-                // TODO: refresh liveness timer
-
-                if (!state.isPrimary()) {
-                    String primaryServerId = state.getPrimaryServerId();
-                    logger.info("Forwarding ClientRequest from client {} to primary server {}", clientId, primaryServerId);
-                    sender.forwardClientRequest(primaryServerId, request);
-                    return;
-                }
-
-                // initiate PBFT protocol
-                prePrepareSender.attemptPrePrepare(request);
-            });
+//            executorManager.submitStateTransition(() -> {
+//                logger.info("Entering state transition for ClientRequest from client {}: timestamp {}",
+//                        clientId, timestamp);
+//                if (timestamp <= state.lastReplyTimestamp(clientId)) {
+//                    logger.info("Ignoring stale ClientRequest from client {}: timestamp {}", clientId, timestamp);
+//                    // TODO: resend cached reply
+//                    return;
+//                }
+//
+//                if (!state.appendServerMessage(request)) {
+//                    logger.info("Duplicate ClientRequest from client {}: timestamp {}, ignoring",
+//                            clientId, timestamp);
+//                    return;
+//                }
+//                // TODO: refresh liveness timer
+//
+//                if (!state.isPrimary()) {
+//                    String primaryServerId = state.getPrimaryServerId();
+//                    logger.info("Forwarding ClientRequest from client {} to primary server {}", clientId, primaryServerId);
+//                    sender.forwardClientRequest(primaryServerId, request);
+//                    return;
+//                }
+//
+//                // initiate PBFT protocol
+//                prePrepareSender.attemptPrePrepare(request);
+//            });
 
 
             // await consensus
@@ -97,6 +103,8 @@ public class ServerNode extends Node {
 //                    clientId, timestamp);
 
             MessageServiceOuterClass.OperationResult result = state.executeOperation(operation);
+            logger.info("Executed operation for ClientRequest from client {}: timestamp {}, result {}",
+                    clientId, timestamp, result);
 
             MessageServiceOuterClass.ClientReply reply = MessageServiceOuterClass.ClientReply.newBuilder()
                     .setViewNumber(1L)

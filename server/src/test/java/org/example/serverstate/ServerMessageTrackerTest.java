@@ -32,7 +32,7 @@ class ServerMessageTrackerTest {
         tracker.append(serverMsg);
 
         // Find the message
-        ServerMessage found = tracker.findPrePrepare(1, 10);
+        ServerMessage found = tracker.findMessage(ServerMessage.PRE_PREPARE, 1, 10, "n1");
         assertNotNull(found, "Should find the PrePrepare message");
         assertEquals("PrePrepareMessage", found.getMessageType());
         assertEquals(1L, found.getViewNumber().orElse(-1L));
@@ -55,7 +55,7 @@ class ServerMessageTrackerTest {
         tracker.append(serverMsg);
 
         // Find the message
-        ServerMessage found = tracker.findPrepare(2, 20);
+        ServerMessage found = tracker.findMessage(ServerMessage.PREPARE, 2, 20, "n2");
         assertNotNull(found, "Should find the Prepare message");
         assertEquals("PrepareMessage", found.getMessageType());
         assertEquals(2L, found.getViewNumber().orElse(-1L));
@@ -65,7 +65,7 @@ class ServerMessageTrackerTest {
     @Test
     void testFindNonExistentMessage() {
         // Try to find a message that doesn't exist
-        ServerMessage found = tracker.findPrePrepare(999, 999);
+        ServerMessage found = tracker.findMessage(ServerMessage.PRE_PREPARE, 999, 999, "n1");
         assertNull(found, "Should not find non-existent message");
     }
 
@@ -87,7 +87,7 @@ class ServerMessageTrackerTest {
         }
 
         // Verify we can find specific messages
-        ServerMessage found = tracker.findPrepare(1, 3);
+        ServerMessage found = tracker.findMessage(ServerMessage.PREPARE, 1, 3, "n1");
         assertNotNull(found);
         assertEquals(1L, found.getViewNumber().orElse(-1L));
         assertEquals(3L, found.getSequenceNumber().orElse(-1L));
@@ -98,7 +98,7 @@ class ServerMessageTrackerTest {
 
     @Test
     void testClear() {
-        // Add some messages
+        // Add multiple types of messages
         MessageServiceOuterClass.PrepareMessage prepareMsg = MessageServiceOuterClass.PrepareMessage.newBuilder()
                 .setViewNumber(1)
                 .setSequenceNumber(10)
@@ -107,17 +107,44 @@ class ServerMessageTrackerTest {
                 .setSignerId("n1")
                 .setSignature(ByteString.copyFromUtf8("sig"))
                 .build();
-        tracker.append(ServerMessage.wrap(prepareMsg));
+        ServerMessage prepareServerMsg = ServerMessage.wrap(prepareMsg);
+        tracker.append(prepareServerMsg);
 
+        MessageServiceOuterClass.PrePrepareMessage prePrepareMsg = MessageServiceOuterClass.PrePrepareMessage.newBuilder()
+                .setViewNumber(2)
+                .setSequenceNumber(20)
+                .setDigest(ByteString.copyFromUtf8("digest2"))
+                .setSignerId("n2")
+                .setSignature(ByteString.copyFromUtf8("sig2"))
+                .build();
+        ServerMessage prePrepareServerMsg = ServerMessage.wrap(prePrepareMsg);
+        tracker.append(prePrepareServerMsg);
+
+        // Verify messages are added
         assertFalse(tracker.isEmpty());
-        assertEquals(1, tracker.size());
+        assertEquals(2, tracker.size());
 
-        // Clear
+        // Establish quorum cache for one message
+        boolean hasQuorumBefore = tracker.checkMessageQuorum(prepareServerMsg, 1);
+        assertTrue(hasQuorumBefore, "Should have quorum before clear");
+
+        // Clear tracker
         tracker.clear();
 
-        assertTrue(tracker.isEmpty());
-        assertEquals(0, tracker.size());
-        assertNull(tracker.findPrepare(1, 10));
+        // Verify all data is cleared
+        assertTrue(tracker.isEmpty(), "Tracker should be empty after clear");
+        assertEquals(0, tracker.size(), "Size should be 0 after clear");
+
+        // Verify messages cannot be found
+        assertNull(tracker.findMessage(ServerMessage.PREPARE, 1, 10, "n1"), "Prepare should not be findable after clear");
+        assertNull(tracker.findMessage(ServerMessage.PRE_PREPARE, 2, 20, "n2"), "PrePrepare should not be findable after clear");
+
+        // Verify quorum cache is also cleared
+        boolean hasQuorumAfter = tracker.checkMessageQuorum(prepareServerMsg, 1);
+        assertFalse(hasQuorumAfter, "Quorum cache should be cleared (message no longer exists)");
+
+        // Verify getAllMessages returns empty list
+        assertTrue(tracker.getAllMessages().isEmpty(), "getAllMessages should return empty list after clear");
     }
 
     @Test
@@ -168,8 +195,8 @@ class ServerMessageTrackerTest {
         tracker.append(ServerMessage.wrap(prepareMsg));
 
         // Both should be findable independently
-        ServerMessage foundPrePrepare = tracker.findPrePrepare(1, 10);
-        ServerMessage foundPrepare = tracker.findPrepare(1, 10);
+        ServerMessage foundPrePrepare = tracker.findMessage(ServerMessage.PRE_PREPARE, 1, 10, "n1");
+        ServerMessage foundPrepare = tracker.findMessage(ServerMessage.PREPARE, 1, 10, "n2");
 
         assertNotNull(foundPrePrepare);
         assertNotNull(foundPrepare);
@@ -178,33 +205,8 @@ class ServerMessageTrackerTest {
     }
 
     @Test
-    void testMessageWithViewOnlyNoSequence() {
-        // Create a ClientReply (has view_number but no sequence_number)
-        MessageServiceOuterClass.ClientReply clientReply = MessageServiceOuterClass.ClientReply.newBuilder()
-                .setViewNumber(1)
-                .setTimestamp(12345L)
-                .setClientId("c1")
-                .setServerId("n1")
-                .setSignerId("n1")
-                .setSignature(ByteString.copyFromUtf8("sig"))
-                .build();
-
-        ServerMessage serverMsg = ServerMessage.wrap(clientReply);
-        tracker.append(serverMsg);
-
-        // Message is added and indexed by view number only
-        assertEquals(1, tracker.size());
-
-        // Should be findable by its index "ClientReply:1"
-        ServerMessage found = tracker.findByIndex("ClientReply:1");
-        assertNotNull(found, "ClientReply should be indexed by view number only");
-        assertEquals("ClientReply", found.getMessageType());
-        assertEquals(1L, found.getViewNumber().orElse(-1L));
-    }
-
-    @Test
-    void testAppendDuplicateWithSameTypeViewSeq_isIgnored() {
-        // Create first PrePrepare message
+    void testAppendDuplicateWithSameSender_isIgnored() {
+        // Create first PrePrepare message from n1
         MessageServiceOuterClass.PrePrepareMessage prePrepareMsg1 = MessageServiceOuterClass.PrePrepareMessage.newBuilder()
                 .setViewNumber(1)
                 .setSequenceNumber(10)
@@ -217,31 +219,32 @@ class ServerMessageTrackerTest {
         tracker.append(ServerMessage.wrap(prePrepareMsg1));
         assertEquals(1, tracker.size(), "First message should be added");
 
-        // Create second PrePrepare message with same view/seq but different content
+        // Create second PrePrepare message from SAME sender (n1) with same view/seq
         MessageServiceOuterClass.PrePrepareMessage prePrepareMsg2 = MessageServiceOuterClass.PrePrepareMessage.newBuilder()
                 .setViewNumber(1)
                 .setSequenceNumber(10)
                 .setDigest(ByteString.copyFromUtf8("digest2-different"))
-                .setSignerId("n2")
+                .setSignerId("n1")  // Same sender!
                 .setSignature(ByteString.copyFromUtf8("sig2-different"))
                 .build();
 
-        // Try to add second message (duplicate)
-        tracker.append(ServerMessage.wrap(prePrepareMsg2));
+        // Try to add duplicate message from same sender
+        boolean added = tracker.append(ServerMessage.wrap(prePrepareMsg2));
+        assertFalse(added, "Duplicate from same sender should not be added");
 
         // Size should still be 1 (duplicate was ignored)
         assertEquals(1, tracker.size(), "Duplicate message should not be added");
 
-        // Verify the original message is still there (not replaced)
-        ServerMessage found = tracker.findPrePrepare(1, 10);
+        // Verify the original message is still there
+        ServerMessage found = tracker.findMessage(ServerMessage.PRE_PREPARE, 1, 10, "n1");
         assertNotNull(found);
         assertEquals(ByteString.copyFromUtf8("digest1"), found.getDigest().orElse(null),
                 "Original message should remain (not replaced by duplicate)");
     }
 
     @Test
-    void testAppendDuplicatePrepare_isIgnored() {
-        // Create first Prepare message
+    void testAppendDuplicatePrepareSameSender_isIgnored() {
+        // Create first Prepare message from n1
         MessageServiceOuterClass.PrepareMessage prepareMsg1 = MessageServiceOuterClass.PrepareMessage.newBuilder()
                 .setViewNumber(2)
                 .setSequenceNumber(20)
@@ -254,52 +257,54 @@ class ServerMessageTrackerTest {
         tracker.append(ServerMessage.wrap(prepareMsg1));
         assertEquals(1, tracker.size());
 
-        // Create second Prepare message with same view/seq
+        // Create second Prepare message from SAME sender (n1) with same view/seq
         MessageServiceOuterClass.PrepareMessage prepareMsg2 = MessageServiceOuterClass.PrepareMessage.newBuilder()
                 .setViewNumber(2)
                 .setSequenceNumber(20)
                 .setDigest(ByteString.copyFromUtf8("digest2"))
                 .setIsAggregated(true)
-                .setSignerId("n2")
+                .setSignerId("n1")  // Same sender!
                 .setSignature(ByteString.copyFromUtf8("sig2"))
                 .build();
 
-        // Try to add duplicate
-        tracker.append(ServerMessage.wrap(prepareMsg2));
+        // Try to add duplicate from same sender
+        boolean added = tracker.append(ServerMessage.wrap(prepareMsg2));
+        assertFalse(added, "Duplicate from same sender should not be added");
 
         // Size should still be 1
         assertEquals(1, tracker.size(), "Duplicate Prepare should not be added");
     }
 
     @Test
-    void testAppendSameViewSeq_differentMessageTypes_bothAdded() {
-        // Add PrePrepare with view=1, seq=10
-        MessageServiceOuterClass.PrePrepareMessage prePrepareMsg = MessageServiceOuterClass.PrePrepareMessage.newBuilder()
-                .setViewNumber(1)
-                .setSequenceNumber(10)
-                .setDigest(ByteString.copyFromUtf8("digest"))
-                .setSignerId("n1")
-                .setSignature(ByteString.copyFromUtf8("sig"))
-                .build();
-
-        tracker.append(ServerMessage.wrap(prePrepareMsg));
-
-        // Add Prepare with same view=1, seq=10
-        MessageServiceOuterClass.PrepareMessage prepareMsg = MessageServiceOuterClass.PrepareMessage.newBuilder()
+    void testAppendSameViewSeq_differentSenders_bothAdded() {
+        // Add Prepare with view=1, seq=10 from n1
+        MessageServiceOuterClass.PrepareMessage prepareMsg1 = MessageServiceOuterClass.PrepareMessage.newBuilder()
                 .setViewNumber(1)
                 .setSequenceNumber(10)
                 .setDigest(ByteString.copyFromUtf8("digest"))
                 .setIsAggregated(false)
-                .setSignerId("n2")
+                .setSignerId("n1")
                 .setSignature(ByteString.copyFromUtf8("sig"))
                 .build();
 
-        tracker.append(ServerMessage.wrap(prepareMsg));
+        tracker.append(ServerMessage.wrap(prepareMsg1));
 
-        // Both should be added (different message types)
-        assertEquals(2, tracker.size(), "Different message types with same view/seq should both be added");
-        assertNotNull(tracker.findPrePrepare(1, 10));
-        assertNotNull(tracker.findPrepare(1, 10));
+        // Add Prepare with same view=1, seq=10 from n2 (different sender)
+        MessageServiceOuterClass.PrepareMessage prepareMsg2 = MessageServiceOuterClass.PrepareMessage.newBuilder()
+                .setViewNumber(1)
+                .setSequenceNumber(10)
+                .setDigest(ByteString.copyFromUtf8("digest"))
+                .setIsAggregated(false)
+                .setSignerId("n2")  // Different sender!
+                .setSignature(ByteString.copyFromUtf8("sig"))
+                .build();
+
+        tracker.append(ServerMessage.wrap(prepareMsg2));
+
+        // Both should be added (different senders)
+        assertEquals(2, tracker.size(), "Messages from different senders should both be added");
+        assertNotNull(tracker.findMessage(ServerMessage.PREPARE, 1, 10, "n1"));
+        assertNotNull(tracker.findMessage(ServerMessage.PREPARE, 1, 10, "n2"));
     }
 
     @Test
@@ -324,43 +329,7 @@ class ServerMessageTrackerTest {
 
         // Only the first should be added
         assertEquals(1, tracker.size(), "Message should only be added once despite multiple append attempts");
-        assertNotNull(tracker.findPrepare(1, 5));
-    }
-
-    @Test
-    void testAppendClientReplyWithSameView_isDeduplicated() {
-        // Create ClientReply messages with same view number (indexed by view only)
-        MessageServiceOuterClass.ClientReply reply1 = MessageServiceOuterClass.ClientReply.newBuilder()
-                .setViewNumber(1)
-                .setTimestamp(1000L)
-                .setClientId("c1")
-                .setServerId("n1")
-                .setSignerId("n1")
-                .setSignature(ByteString.copyFromUtf8("sig1"))
-                .build();
-
-        MessageServiceOuterClass.ClientReply reply2 = MessageServiceOuterClass.ClientReply.newBuilder()
-                .setViewNumber(1)
-                .setTimestamp(2000L)  // Different timestamp
-                .setClientId("c2")      // Different client
-                .setServerId("n2")      // Different server
-                .setSignerId("n2")
-                .setSignature(ByteString.copyFromUtf8("sig2"))
-                .build();
-
-        // First message is added
-        tracker.append(ServerMessage.wrap(reply1));
-        assertEquals(1, tracker.size());
-
-        // Second message with same view is deduplicated (indexed as "ClientReply:1")
-        tracker.append(ServerMessage.wrap(reply2));
-        assertEquals(1, tracker.size(),
-                "ClientReply messages with same view number should be deduplicated");
-
-        // Verify the first message is retained
-        ServerMessage found = tracker.findByIndex("ClientReply:1");
-        assertNotNull(found);
-        assertEquals(1000L, found.getTimestamp().orElse(-1L));
+        assertNotNull(tracker.findMessage(ServerMessage.PREPARE, 1, 5, "n1"));
     }
 
     @Test
@@ -390,7 +359,7 @@ class ServerMessageTrackerTest {
     void testFindByIndexWithDifferentFormats() {
         // Add messages with different index formats
 
-        // Format 1: MessageType:view:sequence
+        // Format 1: MessageType:view:sequence:senderId
         MessageServiceOuterClass.PrepareMessage prepare = MessageServiceOuterClass.PrepareMessage.newBuilder()
                 .setViewNumber(3)
                 .setSequenceNumber(200)
@@ -399,28 +368,457 @@ class ServerMessageTrackerTest {
                 .build();
         tracker.append(ServerMessage.wrap(prepare));
 
-        // Format 2: MessageType:view
+        // Format 2: MessageType:view:senderId (for ClientReply which has view and signer_id)
         MessageServiceOuterClass.ClientReply reply = MessageServiceOuterClass.ClientReply.newBuilder()
                 .setViewNumber(7)
                 .setTimestamp(999L)
                 .setClientId("c1")
                 .setServerId("n1")
+                .setSignerId("n1")  // signer_id is used for indexing
                 .build();
         tracker.append(ServerMessage.wrap(reply));
 
-        // Format 3: MessageType:clientId:timestamp
+        // Format 3: MessageType:clientId:timestamp (ClientRequest doesn't have senderId typically)
         MessageServiceOuterClass.ClientRequest request = MessageServiceOuterClass.ClientRequest.newBuilder()
                 .setClientId("B")
                 .setTimestamp(555555L)
                 .build();
         tracker.append(ServerMessage.wrap(request));
 
-        // Verify all can be found by their respective indices
-        assertNotNull(tracker.findByIndex("PrepareMessage:3:200"));
-        assertNotNull(tracker.findByIndex("ClientReply:7"));
+        // Verify all can be found by their respective indices (with sender where applicable)
+        assertNotNull(tracker.findByIndex("PrepareMessage:3:200:n1"));
+        assertNotNull(tracker.findByIndex("ClientReply:7:n1"));
         assertNotNull(tracker.findByIndex("ClientRequest:B:555555"));
 
         assertEquals(3, tracker.size());
+    }
+
+    // ===== Quorum Functionality Tests =====
+
+    @Test
+    void testCheckMessageQuorum_singleMessage_doesNotMeetQuorum() {
+        // Add one Prepare message
+        MessageServiceOuterClass.PrepareMessage prepareMsg = MessageServiceOuterClass.PrepareMessage.newBuilder()
+                .setViewNumber(1)
+                .setSequenceNumber(10)
+                .setDigest(ByteString.copyFromUtf8("digest1"))
+                .setIsAggregated(false)
+                .setSignerId("n1")
+                .setSignature(ByteString.copyFromUtf8("sig1"))
+                .build();
+
+        ServerMessage serverMsg = ServerMessage.wrap(prepareMsg);
+        tracker.append(serverMsg);
+
+        // Check quorum with requirement of 3
+        boolean hasQuorum = tracker.checkMessageQuorum(serverMsg, 3);
+
+        assertFalse(hasQuorum, "Single message should not meet quorum of 3");
+    }
+
+    @Test
+    void testCheckMessageQuorum_exactQuorumMet() {
+        // Add 3 Prepare messages with same view/seq/digest from different signers
+        for (int i = 1; i <= 3; i++) {
+            MessageServiceOuterClass.PrepareMessage prepareMsg = MessageServiceOuterClass.PrepareMessage.newBuilder()
+                    .setViewNumber(1)
+                    .setSequenceNumber(10)
+                    .setDigest(ByteString.copyFromUtf8("digest1"))  // Same digest
+                    .setIsAggregated(false)
+                    .setSignerId("n" + i)  // Different signers
+                    .setSignature(ByteString.copyFromUtf8("sig" + i))
+                    .build();
+
+            tracker.append(ServerMessage.wrap(prepareMsg));
+        }
+
+        // Create a message with same type/view/seq/digest to check quorum
+        MessageServiceOuterClass.PrepareMessage checkMsg = MessageServiceOuterClass.PrepareMessage.newBuilder()
+                .setViewNumber(1)
+                .setSequenceNumber(10)
+                .setDigest(ByteString.copyFromUtf8("digest1"))
+                .setIsAggregated(false)
+                .setSignerId("n1")
+                .setSignature(ByteString.copyFromUtf8("sig1"))
+                .build();
+
+        ServerMessage serverMsg = ServerMessage.wrap(checkMsg);
+
+        // Check quorum with requirement of 3 (exact match)
+        boolean hasQuorum = tracker.checkMessageQuorum(serverMsg, 3);
+
+        assertTrue(hasQuorum, "Three messages with same digest should meet quorum of 3");
+    }
+
+    @Test
+    void testCheckMessageQuorum_exceedsQuorum() {
+        // Add one message
+        MessageServiceOuterClass.PrepareMessage prepareMsg = MessageServiceOuterClass.PrepareMessage.newBuilder()
+                .setViewNumber(2)
+                .setSequenceNumber(20)
+                .setDigest(ByteString.copyFromUtf8("digest"))
+                .setIsAggregated(false)
+                .setSignerId("n1")
+                .setSignature(ByteString.copyFromUtf8("sig"))
+                .build();
+
+        ServerMessage serverMsg = ServerMessage.wrap(prepareMsg);
+        tracker.append(serverMsg);
+
+        // Check with quorum size of 0 (always met if message exists)
+        boolean hasQuorum = tracker.checkMessageQuorum(serverMsg, 0);
+
+        assertTrue(hasQuorum, "Any message count should exceed quorum of 0");
+    }
+
+    @Test
+    void testCheckMessageQuorum_differentMessageTypes_notCounted() {
+        // Add PrePrepare with view=1, seq=10
+        MessageServiceOuterClass.PrePrepareMessage prePrepareMsg = MessageServiceOuterClass.PrePrepareMessage.newBuilder()
+                .setViewNumber(1)
+                .setSequenceNumber(10)
+                .setDigest(ByteString.copyFromUtf8("digest"))
+                .setSignerId("n1")
+                .setSignature(ByteString.copyFromUtf8("sig"))
+                .build();
+        tracker.append(ServerMessage.wrap(prePrepareMsg));
+
+        // Add Prepare with same view=1, seq=10 (different message type)
+        MessageServiceOuterClass.PrepareMessage prepareMsg = MessageServiceOuterClass.PrepareMessage.newBuilder()
+                .setViewNumber(1)
+                .setSequenceNumber(10)
+                .setDigest(ByteString.copyFromUtf8("digest"))
+                .setIsAggregated(false)
+                .setSignerId("n2")
+                .setSignature(ByteString.copyFromUtf8("sig"))
+                .build();
+        tracker.append(ServerMessage.wrap(prepareMsg));
+
+        // Check quorum for Prepare - should only count Prepare messages
+        ServerMessage prepareServerMsg = ServerMessage.wrap(prepareMsg);
+        boolean hasQuorum = tracker.checkMessageQuorum(prepareServerMsg, 2);
+
+        assertFalse(hasQuorum, "Should only count messages with same type:view:seq:digest");
+    }
+
+    @Test
+    void testCheckMessageQuorum_consistentResults() {
+        // Add a message and check quorum multiple times
+        MessageServiceOuterClass.PrepareMessage prepareMsg = MessageServiceOuterClass.PrepareMessage.newBuilder()
+                .setViewNumber(3)
+                .setSequenceNumber(30)
+                .setDigest(ByteString.copyFromUtf8("digest"))
+                .setIsAggregated(false)
+                .setSignerId("n1")
+                .setSignature(ByteString.copyFromUtf8("sig"))
+                .build();
+
+        ServerMessage serverMsg = ServerMessage.wrap(prepareMsg);
+        tracker.append(serverMsg);
+
+        // First check - should meet quorum of 1
+        boolean firstCheck = tracker.checkMessageQuorum(serverMsg, 1);
+        assertTrue(firstCheck);
+
+        // Second check - should return consistent result
+        boolean secondCheck = tracker.checkMessageQuorum(serverMsg, 1);
+        assertTrue(secondCheck, "Quorum result should be consistent");
+
+        // Third check with same message should also be consistent
+        boolean thirdCheck = tracker.checkMessageQuorum(serverMsg, 1);
+        assertTrue(thirdCheck, "Multiple checks should all return consistent result");
+    }
+
+    @Test
+    void testCheckMessageQuorum_differentQuorumRequirements() {
+        // Test that the same message count can meet or not meet different quorum requirements
+
+        MessageServiceOuterClass.PrepareMessage prepareMsg = MessageServiceOuterClass.PrepareMessage.newBuilder()
+                .setViewNumber(4)
+                .setSequenceNumber(40)
+                .setDigest(ByteString.copyFromUtf8("digest"))
+                .setIsAggregated(false)
+                .setSignerId("n1")
+                .setSignature(ByteString.copyFromUtf8("sig"))
+                .build();
+
+        ServerMessage serverMsg = ServerMessage.wrap(prepareMsg);
+        tracker.append(serverMsg);
+
+        // Check with high quorum requirement - should not meet
+        boolean hasQuorum = tracker.checkMessageQuorum(serverMsg, 5);
+        assertFalse(hasQuorum, "Should not meet quorum of 5 with 1 message");
+
+        // Check with lower requirement - should meet
+        boolean hasQuorumLower = tracker.checkMessageQuorum(serverMsg, 1);
+        assertTrue(hasQuorumLower, "Should meet quorum of 1 with 1 message");
+    }
+
+    @Test
+    void testCheckMessageQuorum_nonExistentMessage_returnsFalse() {
+        // Create a message but don't add it to tracker
+        MessageServiceOuterClass.PrepareMessage prepareMsg = MessageServiceOuterClass.PrepareMessage.newBuilder()
+                .setViewNumber(99)
+                .setSequenceNumber(999)
+                .setDigest(ByteString.copyFromUtf8("digest"))
+                .setIsAggregated(false)
+                .setSignerId("n1")
+                .setSignature(ByteString.copyFromUtf8("sig"))
+                .build();
+
+        ServerMessage serverMsg = ServerMessage.wrap(prepareMsg);
+
+        // Check quorum for message not in tracker
+        boolean hasQuorum = tracker.checkMessageQuorum(serverMsg, 1);
+
+        assertFalse(hasQuorum, "Non-existent message should not have quorum");
+    }
+
+    @Test
+    void testCheckMessageQuorum_multipleViewsAndSequences() {
+        // Add Prepare messages for different view/seq combinations
+        for (int view = 1; view <= 2; view++) {
+            for (int seq = 10; seq <= 11; seq++) {
+                MessageServiceOuterClass.PrepareMessage prepareMsg = MessageServiceOuterClass.PrepareMessage.newBuilder()
+                        .setViewNumber(view)
+                        .setSequenceNumber(seq)
+                        .setDigest(ByteString.copyFromUtf8("digest_" + view + "_" + seq))
+                        .setIsAggregated(false)
+                        .setSignerId("n1")
+                        .setSignature(ByteString.copyFromUtf8("sig"))
+                        .build();
+                tracker.append(ServerMessage.wrap(prepareMsg));
+            }
+        }
+
+        // Check quorum for specific view/seq
+        MessageServiceOuterClass.PrepareMessage targetMsg = MessageServiceOuterClass.PrepareMessage.newBuilder()
+                .setViewNumber(1)
+                .setSequenceNumber(10)
+                .setDigest(ByteString.copyFromUtf8("digest_1_10"))
+                .setIsAggregated(false)
+                .setSignerId("n1")
+                .setSignature(ByteString.copyFromUtf8("sig"))
+                .build();
+
+        ServerMessage serverMsg = ServerMessage.wrap(targetMsg);
+        boolean hasQuorum = tracker.checkMessageQuorum(serverMsg, 1);
+
+        assertTrue(hasQuorum, "Should meet quorum for view=1, seq=10");
+
+        // Verify other combinations also work
+        MessageServiceOuterClass.PrepareMessage targetMsg2 = MessageServiceOuterClass.PrepareMessage.newBuilder()
+                .setViewNumber(2)
+                .setSequenceNumber(11)
+                .setDigest(ByteString.copyFromUtf8("digest_2_11"))
+                .setIsAggregated(false)
+                .setSignerId("n1")
+                .setSignature(ByteString.copyFromUtf8("sig"))
+                .build();
+
+        ServerMessage serverMsg2 = ServerMessage.wrap(targetMsg2);
+        boolean hasQuorum2 = tracker.checkMessageQuorum(serverMsg2, 1);
+
+        assertTrue(hasQuorum2, "Should meet quorum for view=2, seq=11");
+    }
+
+
+    @Test
+    void testCheckMessageQuorum_boundaryConditions() {
+        // Add one message
+        MessageServiceOuterClass.PrepareMessage prepareMsg = MessageServiceOuterClass.PrepareMessage.newBuilder()
+                .setViewNumber(6)
+                .setSequenceNumber(60)
+                .setDigest(ByteString.copyFromUtf8("digest"))
+                .setIsAggregated(false)
+                .setSignerId("n1")
+                .setSignature(ByteString.copyFromUtf8("sig"))
+                .build();
+
+        ServerMessage serverMsg = ServerMessage.wrap(prepareMsg);
+        tracker.append(serverMsg);
+
+        // Test boundary: quorum size = message count (should be true)
+        assertTrue(tracker.checkMessageQuorum(serverMsg, 1),
+                "Quorum should be met when count equals requirement");
+
+        // Test boundary: quorum size = message count + 1 (should be false)
+        assertFalse(tracker.checkMessageQuorum(serverMsg, 2),
+                "Quorum should not be met when requirement exceeds count");
+
+        // Test boundary: quorum size = 0 (should be true)
+        assertTrue(tracker.checkMessageQuorum(serverMsg, 0),
+                "Quorum of 0 should always be met if message exists");
+
+        // Test boundary: negative quorum size (should be true - implementation treats 0 or negative as always met)
+        assertTrue(tracker.checkMessageQuorum(serverMsg, -1),
+                "Negative quorum should be met");
+    }
+
+    @Test
+    void testCheckMessageQuorum_withAggregatedMessages() {
+        // Test with aggregated Prepare message
+        MessageServiceOuterClass.PrepareMessage aggregatedPrepare = MessageServiceOuterClass.PrepareMessage.newBuilder()
+                .setViewNumber(7)
+                .setSequenceNumber(70)
+                .setDigest(ByteString.copyFromUtf8("digest"))
+                .setIsAggregated(true)  // Aggregated message
+                .setSignerId("n1")
+                .setSignature(ByteString.copyFromUtf8("sig"))
+                .build();
+
+        ServerMessage serverMsg = ServerMessage.wrap(aggregatedPrepare);
+        tracker.append(serverMsg);
+
+        // Even though it's aggregated, it's still counted as one message in the tracker
+        boolean hasQuorum = tracker.checkMessageQuorum(serverMsg, 1);
+        assertTrue(hasQuorum, "Aggregated message should be counted as one message (count=1, quorum=1)");
+
+        // Should not meet higher quorum, this also tests that cached count is properly used
+        boolean hasHigherQuorum = tracker.checkMessageQuorum(serverMsg, 2);
+        assertFalse(hasHigherQuorum, "Single aggregated message should not meet quorum of 2 (count=1, quorum=2)");
+    }
+
+    @Test
+    void testCheckMessageQuorum_matchingDuplicatesIncrementCount() {
+        // Add first Prepare message
+        MessageServiceOuterClass.PrepareMessage prepareMsg1 = MessageServiceOuterClass.PrepareMessage.newBuilder()
+                .setViewNumber(1)
+                .setSequenceNumber(10)
+                .setDigest(ByteString.copyFromUtf8("digest1"))
+                .setIsAggregated(false)
+                .setSignerId("n1")
+                .setSignature(ByteString.copyFromUtf8("sig1"))
+                .build();
+
+        ServerMessage serverMsg1 = ServerMessage.wrap(prepareMsg1);
+        boolean added1 = tracker.append(serverMsg1);
+        assertTrue(added1, "First message should be added");
+
+        // Check quorum - should have count of 1
+        boolean hasQuorum1 = tracker.checkMessageQuorum(serverMsg1, 1);
+        assertTrue(hasQuorum1, "Should meet quorum of 1 with 1 message");
+        assertFalse(tracker.checkMessageQuorum(serverMsg1, 2), "Should not meet quorum of 2 with 1 message");
+
+        // Add message with same type/view/seq/digest but different signer
+        MessageServiceOuterClass.PrepareMessage prepareMsg2 = MessageServiceOuterClass.PrepareMessage.newBuilder()
+                .setViewNumber(1)
+                .setSequenceNumber(10)
+                .setDigest(ByteString.copyFromUtf8("digest1"))  // Same digest
+                .setIsAggregated(false)
+                .setSignerId("n2")  // Different signer
+                .setSignature(ByteString.copyFromUtf8("sig2"))  // Different signature
+                .build();
+
+        ServerMessage serverMsg2 = ServerMessage.wrap(prepareMsg2);
+        boolean added2 = tracker.append(serverMsg2);
+        assertTrue(added2, "Message from different sender should be added");
+        assertEquals(2, tracker.size(), "Size should be 2 (both messages added)");
+
+        // Check quorum - should now have count of 2 (both messages with same digest)
+        boolean hasQuorum2 = tracker.checkMessageQuorum(serverMsg1, 2);
+        assertTrue(hasQuorum2, "Should meet quorum of 2 with matching digest");
+
+        // Add another message with matching digest
+        MessageServiceOuterClass.PrepareMessage prepareMsg3 = MessageServiceOuterClass.PrepareMessage.newBuilder()
+                .setViewNumber(1)
+                .setSequenceNumber(10)
+                .setDigest(ByteString.copyFromUtf8("digest1"))  // Same digest
+                .setIsAggregated(false)
+                .setSignerId("n3")
+                .setSignature(ByteString.copyFromUtf8("sig3"))
+                .build();
+
+        ServerMessage serverMsg3 = ServerMessage.wrap(prepareMsg3);
+        tracker.append(serverMsg3);
+
+        // Check quorum - should now have count of 3
+        assertEquals(3, tracker.size(), "Size should be 3");
+        boolean hasQuorum3 = tracker.checkMessageQuorum(serverMsg1, 3);
+        assertTrue(hasQuorum3, "Should meet quorum of 3 with three matching messages");
+    }
+
+    @Test
+    void testCheckMessageQuorum_mismatchedDigestDoesNotIncrementCount() {
+        // Add first Prepare message
+        MessageServiceOuterClass.PrepareMessage prepareMsg1 = MessageServiceOuterClass.PrepareMessage.newBuilder()
+                .setViewNumber(2)
+                .setSequenceNumber(20)
+                .setDigest(ByteString.copyFromUtf8("digest-A"))
+                .setIsAggregated(false)
+                .setSignerId("n1")
+                .setSignature(ByteString.copyFromUtf8("sig1"))
+                .build();
+
+        ServerMessage serverMsg1 = ServerMessage.wrap(prepareMsg1);
+        tracker.append(serverMsg1);
+
+        // Check quorum - should have count of 1
+        assertTrue(tracker.checkMessageQuorum(serverMsg1, 1), "Should meet quorum of 1");
+
+        // Add message with DIFFERENT digest (Byzantine behavior)
+        MessageServiceOuterClass.PrepareMessage prepareMsg2 = MessageServiceOuterClass.PrepareMessage.newBuilder()
+                .setViewNumber(2)
+                .setSequenceNumber(20)
+                .setDigest(ByteString.copyFromUtf8("digest-B"))  // Different digest!
+                .setIsAggregated(false)
+                .setSignerId("n2")
+                .setSignature(ByteString.copyFromUtf8("sig2"))
+                .build();
+
+        ServerMessage serverMsg2 = ServerMessage.wrap(prepareMsg2);
+        boolean added2 = tracker.append(serverMsg2);
+        assertTrue(added2, "Message from different sender should be added");
+        assertEquals(2, tracker.size(), "Both messages should be in tracker");
+
+        // Check quorum - should still have count of 1 for digest-A (mismatched digest not counted)
+        assertFalse(tracker.checkMessageQuorum(serverMsg1, 2),
+                "Should not meet quorum of 2 when other message has different digest");
+        assertTrue(tracker.checkMessageQuorum(serverMsg1, 1),
+                "Should still meet quorum of 1");
+
+        // Check that digest-B also has its own count of 1
+        assertTrue(tracker.checkMessageQuorum(serverMsg2, 1),
+                "Message with digest-B should have quorum of 1");
+    }
+
+    @Test
+    void testCheckMessageQuorum_clearResetsQuorumCountIncludingDuplicates() {
+        // Add message
+        MessageServiceOuterClass.PrepareMessage prepareMsg = MessageServiceOuterClass.PrepareMessage.newBuilder()
+                .setViewNumber(3)
+                .setSequenceNumber(30)
+                .setDigest(ByteString.copyFromUtf8("digest"))
+                .setIsAggregated(false)
+                .setSignerId("n1")
+                .setSignature(ByteString.copyFromUtf8("sig"))
+                .build();
+
+        ServerMessage serverMsg = ServerMessage.wrap(prepareMsg);
+        tracker.append(serverMsg);
+
+        // Add matching duplicates to increase quorum count
+        for (int i = 2; i <= 4; i++) {
+            MessageServiceOuterClass.PrepareMessage duplicate = MessageServiceOuterClass.PrepareMessage.newBuilder()
+                    .setViewNumber(3)
+                    .setSequenceNumber(30)
+                    .setDigest(ByteString.copyFromUtf8("digest"))
+                    .setIsAggregated(false)
+                    .setSignerId("n" + i)
+                    .setSignature(ByteString.copyFromUtf8("sig" + i))
+                    .build();
+            tracker.append(ServerMessage.wrap(duplicate));
+        }
+
+        // Verify quorum count is 4
+        assertTrue(tracker.checkMessageQuorum(serverMsg, 4), "Should have quorum of 4 after duplicates");
+
+        // Clear tracker
+        tracker.clear();
+
+        // Verify quorum count is reset
+        assertFalse(tracker.checkMessageQuorum(serverMsg, 1),
+                "Quorum count should be 0 after clear");
     }
 }
 

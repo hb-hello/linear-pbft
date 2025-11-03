@@ -5,12 +5,9 @@ import com.google.protobuf.Message;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.example.MessageServiceGrpc;
-import org.example.MessageServiceOuterClass;
 import org.example.config.Config;
 import org.example.crypto.MessageAuthenticator;
 
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BiConsumer;
@@ -52,18 +49,16 @@ public class MessageSender {
     protected void signAndSend(String targetNodeId, Message message, BiConsumer<MessageServiceGrpc.MessageServiceFutureStub, Message> method) {
         ensureActive();
         Message signedMessage = auth.sign(message);
-        logger.info("Sending signed message to node {}: {}", targetNodeId, message.getClass());
-        MessageServiceGrpc.MessageServiceFutureStub stub = stubManager.getFutureStub(targetNodeId);
-        method.accept(stub, signedMessage);
-        logger.info("Message sent to node {}: {}", targetNodeId, message.getClass());
+        send(targetNodeId, signedMessage, method);
     }
 
-    // Generic method to sign with threshold signature scheme and send a message using the provided gRPC method
-    protected void signWithTSSAndSend(String targetNodeId, Message message, BiConsumer<MessageServiceGrpc.MessageServiceFutureStub, Message> method) {
+    // Generic method to send an already-signed message using the provided gRPC method
+    protected void send(String targetNodeId, Message signedMessage, BiConsumer<MessageServiceGrpc.MessageServiceFutureStub, Message> method) {
         ensureActive();
-        Message signedMessage = auth.signWithTSS(message);
+        logger.info("Sending pre-signed message to node {}: {}", targetNodeId, signedMessage.getClass());
         MessageServiceGrpc.MessageServiceFutureStub stub = stubManager.getFutureStub(targetNodeId);
         method.accept(stub, signedMessage);
+        logger.info("Message sent to node {}: {}", targetNodeId, signedMessage.getClass());
     }
 
     protected void signWithAggregateTSSAndSend(String targetNodeId, Message message, BiConsumer<MessageServiceGrpc.MessageServiceFutureStub, Message> method, Map<String, ByteString> partialSignatures) {

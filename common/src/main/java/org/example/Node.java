@@ -2,15 +2,12 @@ package org.example;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.example.consensus.ConsensusMessageTracker;
 import org.example.crypto.MessageAuthenticator;
 import org.example.messaging.CommunicationLogger;
 import org.example.messaging.MessageReceiver;
 import org.example.messaging.MessageSender;
 import org.example.config.Config;
 
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 
@@ -29,8 +26,6 @@ public class Node {
 
     protected final ExecutorManager executorManager;
 
-    protected final ConsensusMessageTracker<String> messageTracker;
-
     private volatile Future<?> listenerFuture;
 
     protected Node(String nodeId) {
@@ -39,7 +34,6 @@ public class Node {
         this.auth = new MessageAuthenticator(nodeId);
 
         this.executorManager = new ExecutorManager(10);
-        this.messageTracker = new ConsensusMessageTracker<>();
     }
 
     public String getNodeId() {

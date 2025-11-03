@@ -4,8 +4,12 @@ import com.google.protobuf.Message;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.example.config.Config;
+import org.example.consensus.ConsensusMessageTracker;
 import org.example.messaging.ClientMessageReceiver;
 import org.example.messaging.ClientMessageSender;
+import org.example.statemachine.BalanceRequestOp;
+import org.example.statemachine.StateMachineOperation;
+import org.example.statemachine.TransferOp;
 
 import java.time.Duration;
 import java.util.concurrent.TimeoutException;
@@ -17,11 +21,22 @@ public class ClientNode extends Node {
 
     private final ClientMessageSender sender;
     private final ClientMessageReceiver receiver;
+    private final org.example.consensus.ConsensusMessageTracker<String, MessageServiceOuterClass.OperationResult> messageTracker;
 
     public ClientNode(String nodeId) {
         super(nodeId);
         this.sender = new ClientMessageSender(nodeId, commLogger, auth);
         this.receiver = new ClientMessageReceiver(this, auth);
+
+        // Initialize message tracker with extractors for ClientReply messages
+        this.messageTracker = new ConsensusMessageTracker<>(
+                (Message m) -> {
+                    MessageServiceOuterClass.ClientReply r = (MessageServiceOuterClass.ClientReply) m;
+                    return requestIdFor(r.getClientId(), r.getTimestamp());
+                },
+                (Message m) -> ((MessageServiceOuterClass.ClientReply) m).getServerId(),
+                (Message m) -> ((MessageServiceOuterClass.ClientReply) m).getResult()
+        );
 
         updatePrimary(1L); // Initial view
     }
@@ -40,22 +55,26 @@ public class ClientNode extends Node {
      */
     private MessageServiceOuterClass.ClientRequest generateClientRequest(
             org.example.statemachine.StateMachineOperation operation, String clientId) {
+        logger.info("generateClientRequest: operation={}, clientId={}", operation, clientId);
         long timestamp = System.currentTimeMillis();
 
         MessageServiceOuterClass.Operation.Builder opBuilder = MessageServiceOuterClass.Operation.newBuilder();
 
         // Convert StateMachineOperation to proto Operation
-        if (operation instanceof org.example.statemachine.TransferOp transferOp) {
+        if (operation instanceof TransferOp(String sender1, String receiver1, double amount)) {
+            logger.info("generateClientRequest: Creating Transfer - sender='{}', receiver='{}', amount={}",
+                sender1, receiver1, amount);
             MessageServiceOuterClass.Transfer transfer = MessageServiceOuterClass.Transfer.newBuilder()
-                    .setSender(transferOp.sender())
-                    .setReceiver(transferOp.receiver())
-                    .setAmount(transferOp.amount())
+                    .setSender(sender1)
+                    .setReceiver(receiver1)
+                    .setAmount(amount)
                     .build();
             opBuilder.setTransfer(transfer);
-        } else if (operation instanceof org.example.statemachine.BalanceRequestOp balanceRequestOp) {
+        } else if (operation instanceof BalanceRequestOp(String accountId)) {
+            logger.info("generateClientRequest: Creating BalanceRequest - accountId='{}'", accountId);
             MessageServiceOuterClass.BalanceRequest balanceRequest =
                     MessageServiceOuterClass.BalanceRequest.newBuilder()
-                    .setAccountId(balanceRequestOp.accountId())
+                    .setAccountId(accountId)
                     .build();
             opBuilder.setBalanceRequest(balanceRequest);
         } else {
@@ -89,7 +108,7 @@ public class ClientNode extends Node {
 
         // Await consensus
         try {
-            Message consensus = messageTracker.awaitConsensus(requestId, Duration.ofMillis(getClientRequestTimeoutMillis()));
+            Message consensus = messageTracker.awaitConsensus(requestId, Duration.ofMillis(getClientRequestTimeoutMillis()), majorityCount());
             handleOperationsResult((MessageServiceOuterClass.ClientReply) consensus);
             return true;
         } catch (TimeoutException te) {
@@ -108,7 +127,7 @@ public class ClientNode extends Node {
      *
      * @param operation The state machine operation to process
      */
-    public void processOperation(org.example.statemachine.StateMachineOperation operation) {
+    public void processOperation(StateMachineOperation operation) {
         MessageServiceOuterClass.ClientRequest clientRequest = generateClientRequest(operation, this.nodeId);
 
         String requestId = requestIdFor(clientRequest.getClientId(), clientRequest.getTimestamp());
@@ -116,18 +135,7 @@ public class ClientNode extends Node {
                 operation.getClass().getSimpleName(), clientRequest.getClientId(),
                 clientRequest.getTimestamp(), requestId);
 
-        // Register a consensus bucket for this request ONCE. We do not cancel this between retries.
-        messageTracker.startTracking(
-                requestId,
-                majorityCount(),
-                (Message m) -> {
-                    MessageServiceOuterClass.ClientReply r = (MessageServiceOuterClass.ClientReply) m;
-                    return requestIdFor(r.getClientId(), r.getTimestamp());
-                },
-                (Message m) -> ((MessageServiceOuterClass.ClientReply) m).getServerId(),
-                (Message m) -> ((MessageServiceOuterClass.ClientReply) m).getResult()
-        );
-
+        // Consensus tracker will be implicitly created when first reply arrives
         // Keep retrying forever until consensus is reached
         while (true) {
             boolean success = broadcastOrSendClientRequestWithTimeout(clientRequest);
@@ -167,16 +175,24 @@ public class ClientNode extends Node {
     }
 
     public void onClientReply(MessageServiceOuterClass.ClientReply reply) {
-        // Route reply into tracker using O(1) request id derivation
-        boolean accepted = messageTracker.recordReply(
-                requestIdFor(reply.getClientId(), reply.getTimestamp()),
-                reply);
-        if (!accepted) {
-            logger.info("Reply from {} did not match any in-flight request (client={}, ts={})",
-                    reply.getServerId(), reply.getClientId(), reply.getTimestamp());
-            return;
+        String requestId = requestIdFor(reply.getClientId(), reply.getTimestamp());
+
+        logger.info("Received ClientReply from {} for request {} with result {}",
+                reply.getServerId(), requestId, reply.getResult());
+
+        // Record reply and check if consensus is reached
+        boolean quorumReached = messageTracker.recordMessageAndCheckQuorum(
+                requestId,
+                reply,
+                majorityCount());
+
+        if (quorumReached) {
+            logger.info("Consensus reached for request {} after receiving reply from {} (quorum={})",
+                    requestId, reply.getServerId(), majorityCount());
+        } else {
+            logger.info("Recorded ClientReply from {} for request {}, waiting for more replies (need quorum={})",
+                    reply.getServerId(), requestId, majorityCount());
         }
-        logger.info("Recorded ClientReply with value {} from {} for client {} at ts {}", reply.getResult(), reply.getServerId(), reply.getClientId(), reply.getTimestamp());
     }
 
     public void start() {

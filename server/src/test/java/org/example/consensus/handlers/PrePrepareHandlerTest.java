@@ -1,20 +1,19 @@
 package org.example.consensus.handlers;
 
 import com.google.protobuf.ByteString;
-import com.google.protobuf.Message;
 import org.example.MessageServiceOuterClass;
 import org.example.config.Config;
-import org.example.consensus.senders.PrepareSender;
-import org.example.crypto.MessageAuthenticator;
 import org.example.messaging.MessageUtil;
 import org.example.messaging.ServerMessage;
 import org.example.serverstate.ServerState;
+import org.example.testutil.MockMessageAuthenticator;
+import org.example.testutil.MockPrepareSender;
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import java.security.MessageDigest;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -25,13 +24,14 @@ class PrePrepareHandlerTest {
     private static ExecutorService stateExec;
     private ServerState state;
     private PrePrepareHandler handler;
+    private MockPrepareSender mockPrepareSender;
 
     @BeforeAll
     static void setup() {
         Config.initialize("src/test/resources/config.properties");
         stateExec = Executors.newSingleThreadExecutor(r -> {
             Thread t = new Thread(r);
-            t.setName("state-manager-0");
+            t.setName("-state-manager-0");  // Must start with "-state-manager" for onStateThread() check
             return t;
         });
     }
@@ -47,10 +47,17 @@ class PrePrepareHandlerTest {
     void setUp() {
         state = new ServerState("n1", false, stateExec);
         // Use a mock authenticator that always returns true
-        MessageAuthenticator mockAuth = new MockMessageAuthenticator();
+        MockMessageAuthenticator mockAuth = new MockMessageAuthenticator();
         // Create a mock PrepareSender that doesn't actually send messages
-        PrepareSender mockPrepareSender = new MockPrepareSender(state);
+        mockPrepareSender = new MockPrepareSender("n1", state);
         handler = new PrePrepareHandler(state, mockAuth, mockPrepareSender);
+    }
+
+    @AfterEach
+    void tearDownTest() {
+        if (mockPrepareSender != null) {
+            mockPrepareSender.shutdown();
+        }
     }
 
     private byte[] computeDigest(MessageServiceOuterClass.ClientRequest request) {
@@ -104,13 +111,13 @@ class PrePrepareHandlerTest {
                 createPrePrepareRequest(1L, 1L, clientRequest);
 
         // Initially, state should not have this PrePrepare
-        assertNull(state.findPrePrepare(1L, 1L), "State should not have PrePrepare before handling");
+        assertFalse(state.hasPrePrepare(1L, 1L), "State should not have PrePrepare before handling");
 
         // Act: Handle the PrePrepare
         handler.handle(prePrepareRequest);
 
         // Assert: PrePrepare should be added to state (as PrePrepareMessage, not PrePrepareRequest)
-        ServerMessage foundMessage = state.findPrePrepare(1L, 1L);
+        ServerMessage foundMessage = state.findPrePrepare(1L, 1L, "n1");
         assertNotNull(foundMessage, "PrePrepare should be added to state");
         assertEquals("PrePrepareMessage", foundMessage.getMessageType());
         assertEquals(1L, foundMessage.getViewNumber().orElse(-1L));
@@ -129,7 +136,7 @@ class PrePrepareHandlerTest {
         handler.handle(prePrepareRequest);
 
         // Assert: PrePrepare should NOT be added to state
-        assertNull(state.findPrePrepare(1L, 1L), "PrePrepare with wrong view should not be added");
+        assertFalse(state.hasPrePrepare(1L, 1L), "PrePrepare with wrong view should not be added");
     }
 
     @Test
@@ -142,13 +149,13 @@ class PrePrepareHandlerTest {
         MessageServiceOuterClass.PrePrepareRequest prePrepareRequest1 =
                 createPrePrepareRequest(1L, 0L, clientRequest);
         handler.handle(prePrepareRequest1);
-        assertNull(state.findPrePrepare(1L, 0L), "PrePrepare with seq at low watermark should not be added");
+        assertFalse(state.hasPrePrepare(1L, 0L), "PrePrepare with seq at low watermark should not be added");
 
         // Test with seq = 101 (above high watermark)
         MessageServiceOuterClass.PrePrepareRequest prePrepareRequest2 =
                 createPrePrepareRequest(1L, 101L, clientRequest);
         handler.handle(prePrepareRequest2);
-        assertNull(state.findPrePrepare(1L, 101L), "PrePrepare with seq above high watermark should not be added");
+        assertFalse(state.hasPrePrepare(1L, 101L), "PrePrepare with seq above high watermark should not be added");
     }
 
     @Test
@@ -158,14 +165,14 @@ class PrePrepareHandlerTest {
         MessageServiceOuterClass.PrePrepareRequest prePrepareRequest1 =
                 createPrePrepareRequest(1L, 1L, clientRequest1);
         handler.handle(prePrepareRequest1);
-        assertNotNull(state.findPrePrepare(1L, 1L), "PrePrepare with seq=1 should be added");
+        assertTrue(state.hasPrePrepare(1L, 1L), "PrePrepare with seq=1 should be added");
 
         // Test seq = 100 (at high watermark, inclusive, should be accepted)
         MessageServiceOuterClass.ClientRequest clientRequest2 = createClientRequest("client2", 2000L);
         MessageServiceOuterClass.PrePrepareRequest prePrepareRequest2 =
                 createPrePrepareRequest(1L, 100L, clientRequest2);
         handler.handle(prePrepareRequest2);
-        assertNotNull(state.findPrePrepare(1L, 100L), "PrePrepare with seq=100 should be added");
+        assertTrue(state.hasPrePrepare(1L, 100L), "PrePrepare with seq=100 should be added");
     }
 
     @Test
@@ -176,7 +183,7 @@ class PrePrepareHandlerTest {
                 createPrePrepareRequest(1L, 1L, clientRequest);
 
         handler.handle(prePrepareRequest);
-        ServerMessage first = state.findPrePrepare(1L, 1L);
+        ServerMessage first = state.findPrePrepare(1L, 1L, "n1");
         assertNotNull(first, "First PrePrepare should be added");
 
         // Get the current size of messages
@@ -198,7 +205,7 @@ class PrePrepareHandlerTest {
         MessageServiceOuterClass.PrePrepareRequest prePrepareRequest1 =
                 createPrePrepareRequest(1L, 1L, clientRequest1);
         handler.handle(prePrepareRequest1);
-        assertNotNull(state.findPrePrepare(1L, 1L));
+        assertTrue(state.hasPrePrepare(1L, 1L));
 
         int sizeAfterFirst = state.getServerMessageTracker().size();
 
@@ -217,20 +224,25 @@ class PrePrepareHandlerTest {
     @Test
     void testHandle_invalidClientRequestSignature_doesNotAddToState() {
         // Use a mock authenticator that rejects signatures
-        MessageAuthenticator rejectingAuth = new MockMessageAuthenticator(false);
-        PrepareSender mockPrepareSender = new MockPrepareSender(state);
-        PrePrepareHandler rejectingHandler = new PrePrepareHandler(state, rejectingAuth, mockPrepareSender);
+        MockMessageAuthenticator rejectingAuth = new MockMessageAuthenticator(false);
+        MockPrepareSender localMockSender = new MockPrepareSender("n1", state);
+        PrePrepareHandler rejectingHandler = new PrePrepareHandler(state, rejectingAuth, localMockSender);
 
-        MessageServiceOuterClass.ClientRequest clientRequest = createClientRequest("client1", 1000L);
-        MessageServiceOuterClass.PrePrepareRequest prePrepareRequest =
-                createPrePrepareRequest(1L, 1L, clientRequest);
+        try {
+            MessageServiceOuterClass.ClientRequest clientRequest = createClientRequest("client1", 1000L);
+            MessageServiceOuterClass.PrePrepareRequest prePrepareRequest =
+                    createPrePrepareRequest(1L, 1L, clientRequest);
 
-        // Act: Handle with invalid client request signature
-        rejectingHandler.handle(prePrepareRequest);
+            // Act: Handle with invalid client request signature
+            rejectingHandler.handle(prePrepareRequest);
 
-        // Assert: PrePrepare should NOT be added due to invalid signature
-        assertNull(state.findPrePrepare(1L, 1L),
-                "PrePrepare with invalid client signature should not be added");
+            // Assert: PrePrepare should NOT be added due to invalid signature
+            assertFalse(state.hasPrePrepare(1L, 1L),
+                    "PrePrepare with invalid client signature should not be added");
+        } finally {
+            // Clean up local mock sender
+            localMockSender.shutdown();
+        }
     }
 
     @Test
@@ -246,50 +258,8 @@ class PrePrepareHandlerTest {
 
         // Assert: All 5 should be added
         for (int seq = 1; seq <= 5; seq++) {
-            assertNotNull(state.findPrePrepare(1L, (long) seq),
+            assertTrue(state.hasPrePrepare(1L, (long) seq),
                     "PrePrepare with seq=" + seq + " should be added");
-        }
-    }
-
-    /**
-     * Mock MessageAuthenticator for testing.
-     * Returns a configurable boolean for verify() without requiring key infrastructure.
-     */
-    private static class MockMessageAuthenticator extends MessageAuthenticator {
-        private final boolean verifyResult;
-
-        public MockMessageAuthenticator() {
-            this(true); // Default to accepting all signatures
-        }
-
-        public MockMessageAuthenticator(boolean verifyResult) {
-            super("n1");
-            this.verifyResult = verifyResult;
-        }
-
-        @Override
-        public boolean verify(Message message) {
-            return verifyResult;
-        }
-
-        @Override
-        public boolean verifyWithTss(Message message) {
-            return verifyResult;
-        }
-    }
-
-    /**
-     * Mock PrepareSender for testing.
-     * Does not actually send messages, just a no-op implementation.
-     */
-    private static class MockPrepareSender extends PrepareSender {
-        public MockPrepareSender(ServerState state) {
-            super("n1", state, null, null);
-        }
-
-        @Override
-        public void sendPrepare(long viewNumber, long sequenceNumber, byte[] digest) {
-            // No-op: don't actually send anything in tests
         }
     }
 }

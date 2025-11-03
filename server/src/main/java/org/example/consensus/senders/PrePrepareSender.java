@@ -57,6 +57,8 @@ public class PrePrepareSender extends MessageSender {
 
         MessageServiceOuterClass.PrePrepareMessage signedPrePrepareMsg = (MessageServiceOuterClass.PrePrepareMessage) auth.sign(prePrepareMsg);
 
+        state.appendServerMessage(prePrepareMsg);
+
         MessageServiceOuterClass.PrePrepareRequest request =
                 MessageServiceOuterClass.PrePrepareRequest.newBuilder()
                         .setPrePrepareMessage(signedPrePrepareMsg)
@@ -82,6 +84,6 @@ public class PrePrepareSender extends MessageSender {
     // might not be needed
     private void sendPrePrepare(String targetServerId, MessageServiceOuterClass.PrePrepareRequest prePrepare) {
         logger.info("Sending PrePrepare to server {}: {}", targetServerId, prePrepare.getPrePrepareMessage().getViewNumber());
-        signWithTSSAndSend(targetServerId, prePrepare, (stub, signed) -> stub.prePrepare((MessageServiceOuterClass.PrePrepareRequest) signed));
+        signAndSend(targetServerId, prePrepare, (stub, signed) -> stub.prePrepare((MessageServiceOuterClass.PrePrepareRequest) signed));
     }
 }

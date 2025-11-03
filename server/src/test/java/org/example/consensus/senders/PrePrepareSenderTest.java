@@ -5,7 +5,8 @@ import org.example.config.Config;
 import org.example.crypto.MessageAuthenticator;
 import org.example.messaging.CommunicationLogger;
 import org.example.serverstate.ServerState;
-import org.junit.jupiter.api.Test;
+import org.example.testutil.MockPrePrepareSender;
+import org.junit.jupiter.api.*;
 
 import java.security.MessageDigest;
 import java.util.concurrent.ExecutorService;
@@ -15,103 +16,96 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class PrePrepareSenderTest {
 
-    // Sender that captures the broadcast request
-    static class CapturingPrePrepareSender extends PrePrepareSender {
-        MessageServiceOuterClass.PrePrepareRequest captured;
-        public CapturingPrePrepareSender(String nodeId, ServerState state, CommunicationLogger commLogger, MessageAuthenticator auth) {
-            super(nodeId, state, commLogger, auth);
+    private static ExecutorService stateExec;
+    private ServerState state;
+    private MockPrePrepareSender sender;
+
+    @BeforeAll
+    static void setup() {
+        Config.initialize("src/test/resources/config.properties");
+        stateExec = Executors.newSingleThreadExecutor(r -> {
+            Thread t = new Thread(r);
+            t.setName("-state-manager-0");
+            return t;
+        });
+    }
+
+    @AfterAll
+    static void tearDown() {
+        if (stateExec != null) {
+            stateExec.shutdownNow();
         }
-        @Override
-        void broadcastToServers(MessageServiceOuterClass.PrePrepareRequest request) {
-            this.captured = request; // do not call super to avoid networking
+    }
+
+    @BeforeEach
+    void setUp() {
+        state = new ServerState("n1", false, stateExec);
+    }
+
+    @AfterEach
+    void tearDownTest() {
+        if (sender != null) {
+            sender.shutdown();
         }
     }
 
     @Test
     void attemptPrePrepare_broadcastsWithCorrectFields_whenCanSend() throws Exception {
-        Config.initialize("src/test/resources/config.properties");
-        ExecutorService exec = Executors.newSingleThreadExecutor(r -> new Thread(r, "state-manager-test"));
-        try {
-            ServerState state = new ServerState("n1", false, exec);
-            // Make this node primary by choosing a view whose primary is n1
-            state.setViewAndPrimary(1L);
+        // Make this node primary by choosing a view whose primary is n1
+        state.setViewAndPrimary(1L);
 
-            CapturingPrePrepareSender sender = new CapturingPrePrepareSender("n1", state, new CommunicationLogger(), new MessageAuthenticator("n1"));
-            sender.setActive(true);
+        sender = new MockPrePrepareSender("n1", state, new CommunicationLogger(), new MessageAuthenticator("n1"));
+        sender.setActive(true);
 
-            MessageServiceOuterClass.ClientRequest clientReq = MessageServiceOuterClass.ClientRequest.newBuilder().build();
+        MessageServiceOuterClass.ClientRequest clientReq = MessageServiceOuterClass.ClientRequest.newBuilder().build();
 
-            long expectedSeq = state.snapshotHeader().seq() + 1; // nextSeq will be called inside
-            long expectedView = state.getViewNumber();
+        long expectedSeq = state.snapshotHeader().seq() + 1; // nextSeq will be called inside
+        long expectedView = state.getViewNumber();
 
-            sender.attemptPrePrepare(clientReq);
+        sender.attemptPrePrepare(clientReq);
 
-            MessageServiceOuterClass.PrePrepareRequest sent = sender.captured;
-            assertNotNull(sent);
+        MessageServiceOuterClass.PrePrepareRequest sent = sender.getCapturedRequest();
+        assertNotNull(sent);
 
-            byte[] expectedDigest = MessageDigest.getInstance("MD5").digest(clientReq.toByteArray());
-            assertEquals(expectedView, sent.getPrePrepareMessage().getViewNumber());
-            assertEquals(expectedSeq, sent.getPrePrepareMessage().getSequenceNumber());
-            assertArrayEquals(expectedDigest, sent.getPrePrepareMessage().getDigest().toByteArray());
-            assertArrayEquals(clientReq.toByteArray(), sent.getRequest().toByteArray());
-        } finally {
-            exec.shutdownNow();
-        }
+        byte[] expectedDigest = MessageDigest.getInstance("MD5").digest(clientReq.toByteArray());
+        assertEquals(expectedView, sent.getPrePrepareMessage().getViewNumber());
+        assertEquals(expectedSeq, sent.getPrePrepareMessage().getSequenceNumber());
+        assertArrayEquals(expectedDigest, sent.getPrePrepareMessage().getDigest().toByteArray());
+        assertArrayEquals(clientReq.toByteArray(), sent.getRequest().toByteArray());
     }
 
     @Test
     void attemptPrePrepare_doesNotSend_whenNotPrimary() {
-        Config.initialize("src/test/resources/config.properties");
-        ExecutorService exec = Executors.newSingleThreadExecutor(r -> new Thread(r, "state-manager-test"));
-        try {
-            ServerState state = new ServerState("n1", false, exec);
-            // Set view whose primary is n0 so n1 is not primary
-            state.setViewAndPrimary(0L);
+        // Set view whose primary is n0 so n1 is not primary
+        state.setViewAndPrimary(0L);
 
-            CapturingPrePrepareSender sender = new CapturingPrePrepareSender("n1", state, new CommunicationLogger(), new MessageAuthenticator("n1"));
-            sender.setActive(true);
+        sender = new MockPrePrepareSender("n1", state, new CommunicationLogger(), new MessageAuthenticator("n1"));
+        sender.setActive(true);
 
-            sender.attemptPrePrepare(MessageServiceOuterClass.ClientRequest.newBuilder().build());
-            assertNull(sender.captured);
-        } finally {
-            exec.shutdownNow();
-        }
+        sender.attemptPrePrepare(MessageServiceOuterClass.ClientRequest.newBuilder().build());
+        assertNull(sender.getCapturedRequest());
     }
 
     @Test
     void attemptPrePrepare_doesNotSend_whenFaulty() {
-        Config.initialize("src/test/resources/config.properties");
-        ExecutorService exec = Executors.newSingleThreadExecutor(r -> new Thread(r, "state-manager-test"));
-        try {
-            ServerState state = new ServerState("n1", false, exec);
-            state.setViewAndPrimary(1L); // n1 primary
-            state.setFaulty(true);
+        state.setViewAndPrimary(1L); // n1 primary
+        state.setFaulty(true);
 
-            CapturingPrePrepareSender sender = new CapturingPrePrepareSender("n1", state, new CommunicationLogger(), new MessageAuthenticator("n1"));
-            sender.setActive(true);
+        sender = new MockPrePrepareSender("n1", state, new CommunicationLogger(), new MessageAuthenticator("n1"));
+        sender.setActive(true);
 
-            sender.attemptPrePrepare(MessageServiceOuterClass.ClientRequest.newBuilder().build());
-            assertNull(sender.captured);
-        } finally {
-            exec.shutdownNow();
-        }
+        sender.attemptPrePrepare(MessageServiceOuterClass.ClientRequest.newBuilder().build());
+        assertNull(sender.getCapturedRequest());
     }
 
     @Test
     void attemptPrePrepare_doesNotSend_whenInactive() {
-        Config.initialize("src/test/resources/config.properties");
-        ExecutorService exec = Executors.newSingleThreadExecutor(r -> new Thread(r, "state-manager-test"));
-        try {
-            ServerState state = new ServerState("n1", false, exec);
-            state.setViewAndPrimary(1L); // n1 primary
+        state.setViewAndPrimary(1L); // n1 primary
 
-            CapturingPrePrepareSender sender = new CapturingPrePrepareSender("n1", state, new CommunicationLogger(), new MessageAuthenticator("n1"));
-            sender.setActive(false);
+        sender = new MockPrePrepareSender("n1", state, new CommunicationLogger(), new MessageAuthenticator("n1"));
+        sender.setActive(false);
 
-            sender.attemptPrePrepare(MessageServiceOuterClass.ClientRequest.newBuilder().build());
-            assertNull(sender.captured);
-        } finally {
-            exec.shutdownNow();
-        }
+        sender.attemptPrePrepare(MessageServiceOuterClass.ClientRequest.newBuilder().build());
+        assertNull(sender.getCapturedRequest());
     }
 }

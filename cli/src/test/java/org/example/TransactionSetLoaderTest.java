@@ -13,7 +13,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class TransactionSetLoaderTest {
 
-    private static final String TEST_CSV_PATH = "../src/main/resources/transactionsSets2.csv";
+    private static final String TEST_CSV_PATH = "../src/main/resources/transactionSets2.csv";
 
     @Test
     void testLoadTransactionSets_fileExists() {

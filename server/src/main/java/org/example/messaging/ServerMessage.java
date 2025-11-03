@@ -15,6 +15,16 @@ import java.util.Optional;
  */
 public interface ServerMessage {
 
+    // Message type constants
+    String PRE_PREPARE = "PrePrepareMessage";
+    String PREPARE = "PrepareMessage";
+    String COMMIT = "CommitMessage";
+    String CHECKPOINT = "CheckpointMessage";
+    String VIEW_CHANGE = "ViewChangeMessage";
+    String NEW_VIEW = "NewViewMessage";
+    String CLIENT_REQUEST = "ClientRequest";
+    String CLIENT_REPLY = "ClientReply";
+
     /**
      * Get the underlying protobuf message.
      */
@@ -42,6 +52,14 @@ public interface ServerMessage {
      */
     default Optional<ByteString> getDigest() {
         return extractBytesField("digest");
+    }
+
+    /**
+     * Extract sender id if present in the message.
+     * Handles both direct fields and nested fields (e.g., PrePrepareRequest.pre_prepare_message.digest).
+     */
+    default Optional<String> getSenderId() {
+        return extractStringField("signer_id");
     }
 
     /**
@@ -79,7 +97,7 @@ public interface ServerMessage {
     }
 
     /**
-     * Calculate a unique index for this message based on its type and relevant fields.
+     * Calculate a unique index for this message based on its type and relevant fields (without sender ID).
      * <ul>
      *   <li>For messages with view_number and sequence_number (PrePrepare, Prepare, Commit, Checkpoint, ViewChange):
      *       returns "MessageType:viewNumber:sequenceNumber"</li>
@@ -91,7 +109,7 @@ public interface ServerMessage {
      *       returns "MessageType:unknown"</li>
      * </ul>
      *
-     * @return A string index uniquely identifying this message
+     * @return A string index identifying this message type and content (without sender)
      */
     default String getMessageIndex() {
         String messageType = getMessageType();
@@ -119,6 +137,18 @@ public interface ServerMessage {
 
         // Fallback for unknown message types
         return String.format("%s:unknown", messageType);
+    }
+
+    /**
+     * Calculate a unique index for this message based on its type, relevant fields, and sender ID.
+     *
+     * @return A string index uniquely identifying this message including sender
+     */
+    default String getMessageIndexWithSender() {
+        String baseIndex = getMessageIndex();
+        Optional<String> senderId = getSenderId();
+
+        return senderId.map(s -> baseIndex + ":" + s).orElse(baseIndex);
     }
 
     /**

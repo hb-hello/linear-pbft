@@ -16,71 +16,76 @@ import java.util.function.Function;
  *
  * - Supports different message types simultaneously (each bucket defines its own extractors)
  * - Deduplicates by responder id and groups by a value key until required threshold is reached
+ * - Implicitly creates consensus messages when first reply arrives
+ * - Keeps completed consensus messages for later tracking
  */
-public class ConsensusMessageTracker<K> {
+public class ConsensusMessageTracker<K, V> {
 
     private static final Logger logger = LogManager.getLogger(ConsensusMessageTracker.class);
 
-    private final ConcurrentMap<K, ConsensusMessage<K, ?>> inFlight = new ConcurrentHashMap<>();
+    private final ConcurrentMap<K, ConsensusMessage<K, V>> tracked = new ConcurrentHashMap<>();
 
-    /** Register a pre-constructed consensus bucket. If a bucket already exists for the same id, keeps the existing one. */
-    public <V> void startTracking(ConsensusMessage<K, V> consensus) {
-        inFlight.putIfAbsent(consensus.requestId(), consensus);
-        logger.info("Start tracking requestId={} with required responses = {}.", consensus.requestId(), consensus.required());
+    private final Function<Message, K> requestIdExtractor;
+    private final Function<Message, String> responderIdExtractor;
+    private final Function<Message, V> valueExtractor;
+
+    /**
+     * Create a consensus tracker with extractors that will be used for all consensus messages.
+     *
+     * @param requestIdExtractor Extracts request ID from a reply message
+     * @param responderIdExtractor Extracts responder ID from a reply message
+     * @param valueExtractor Extracts the value to group by from a reply message
+     */
+    public ConsensusMessageTracker(Function<Message, K> requestIdExtractor,
+                                   Function<Message, String> responderIdExtractor,
+                                   Function<Message, V> valueExtractor) {
+        this.requestIdExtractor = requestIdExtractor;
+        this.responderIdExtractor = responderIdExtractor;
+        this.valueExtractor = valueExtractor;
     }
 
-    /** Convenience: construct and register a consensus bucket, then return it to the caller. */
-    public <V> ConsensusMessage<K, V> startTracking(K requestId,
-                                                    int required,
-                                                    Function<Message, K> requestIdExtractor,
-                                                    Function<Message, String> responderIdExtractor,
-                                                    Function<Message, V> valueExtractor) {
-        ConsensusMessage<K, V> cm = new ConsensusMessage<>(requestId, required,
-                requestIdExtractor, responderIdExtractor, valueExtractor);
-        startTracking(cm);
-        return cm;
-    }
+    /** Record an incoming response by request id for O(1) lookup. Implicitly creates consensus message if needed. */
+    public boolean recordMessage(K requestId, Message reply) {
+        // Get or create consensus message for this request ID
+        ConsensusMessage<K, V> state = tracked.computeIfAbsent(requestId, id -> {
+            logger.info("Implicitly creating consensus tracker when recording reply for requestId={}.", id);
+            return new ConsensusMessage<>(id, requestIdExtractor, responderIdExtractor, valueExtractor);
+        });
 
-    /** Record an incoming response by request id for O(1) lookup. */
-    public boolean recordReply(K requestId, Message reply) {
-        ConsensusMessage<K, ?> state = inFlight.get(requestId);
-        if (state == null) {
-            logger.info("Received reply for untracked requestId={}, ignoring.", requestId);
-            return false;
-        }
         state.addReply(reply);
-        if (state.isCompleted()) {
-            inFlight.remove(requestId, state);
-        }
         return true;
     }
 
-    /** Record an incoming response by scanning buckets to find a match via canAccept(). */
-    public boolean recordReply(Message reply) {
-        for (Map.Entry<K, ConsensusMessage<K, ?>> e : inFlight.entrySet()) {
-            ConsensusMessage<K, ?> state = e.getValue();
-            if (state.canAccept(reply)) {
-                state.addReply(reply);
-                if (state.isCompleted()) {
-                    inFlight.remove(e.getKey(), state);
-                }
-                return true;
-            }
-        }
-        logger.info("Received reply that matched no in-flight request. Ignoring.");
-        return false;
+    /**
+     * Record an incoming response by request id and check if quorum was reached.
+     * Implicitly creates consensus message if needed.
+     *
+     * @param requestId The request identifier
+     * @param reply The reply message to record
+     * @param required Number of matching responses required for consensus
+     * @return true if quorum was reached after adding this reply, false otherwise
+     */
+    public boolean recordMessageAndCheckQuorum(K requestId, Message reply, int required) {
+        // Record the reply first (creates consensus message if needed)
+        recordMessage(requestId, reply);
+
+        // Now check if quorum was reached
+        ConsensusMessage<K, V> state = tracked.get(requestId);
+        return state != null && state.checkQuorum(required);
     }
 
-    /** Block until N matching replies are received for requestId, or timeout occurs. */
-    public Message awaitConsensus(K requestId, Duration timeout)
+    /** Block until N matching replies are received for requestId, or timeout occurs. Implicitly creates consensus message if needed. */
+    public Message awaitConsensus(K requestId, Duration timeout, int required)
             throws InterruptedException, TimeoutException {
-        ConsensusMessage<K, ?> state = inFlight.get(requestId);
-        if (state == null) {
-            throw new IllegalStateException("awaitConsensus called before startTracking for requestId: " + requestId);
-        }
+        // Get or create consensus message for this request ID
+        ConsensusMessage<K, V> state = tracked.computeIfAbsent(requestId, id -> {
+            logger.info("Implicitly creating consensus tracker for requestId={} with required responses = {}.", id, required);
+            return new ConsensusMessage<>(id, requestIdExtractor, responderIdExtractor, valueExtractor);
+        });
+
         try {
             Message reply = state.future().get(timeout.toMillis(), TimeUnit.MILLISECONDS);
-            inFlight.remove(requestId, state);
+            // Keep the state in tracked map even after completion
             return reply;
         } catch (ExecutionException e) {
             throw new RuntimeException("Consensus wait failed", e.getCause());
@@ -93,18 +98,39 @@ public class ConsensusMessageTracker<K> {
 
     /** Cancel and clean up a tracking bucket; completes its future exceptionally with CancellationException. */
     public boolean cancel(K requestId) {
-        ConsensusMessage<K, ?> state = inFlight.remove(requestId);
+        ConsensusMessage<K, V> state = tracked.remove(requestId);
         if (state == null) return false;
         state.future().completeExceptionally(new CancellationException("Consensus cancelled for requestId=" + requestId));
         return true;
     }
 
     /** Non-blocking snapshot of counts for the request id. */
-    public Optional<Status> getStatus(K requestId) {
-        ConsensusMessage<K, ?> state = inFlight.get(requestId);
+    public Optional<Status> getStatus(K requestId, int required) {
+        ConsensusMessage<K, V> state = tracked.get(requestId);
         if (state == null) return Optional.empty();
-        Map<?, Integer> counts = state.snapshotCounts();
-        return Optional.of(new Status(state.uniqueResponders(), counts, state.required()));
+        Map<V, Integer> counts = state.snapshotCounts();
+        return Optional.of(new Status(state.uniqueResponders(), counts, required));
+    }
+
+    /**
+     * Check if a quorum of messages with the same request ID exists.
+     *
+     * @param requestId The request identifier
+     * @param quorumSize The required quorum size
+     * @return true if quorum is met, false otherwise
+     */
+    public boolean checkMessageQuorum(K requestId, int quorumSize) {
+        ConsensusMessage<K, V> state = tracked.get(requestId);
+        if (state == null) return false;
+        return state.checkQuorum(quorumSize);
+    }
+
+    /**
+     * Clear all tracked consensus messages.
+     */
+    public void clear() {
+        tracked.clear();
+        logger.info("Cleared all tracked consensus messages.");
     }
 
     /** Simple status DTO */

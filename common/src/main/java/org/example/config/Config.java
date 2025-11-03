@@ -109,6 +109,7 @@ public class Config {
         logger.info("Loading client details from: {}", clientDetailsPath);
         clientBalances = ConfigLoader.loadClientBalances(clientDetailsPath);
         logger.info("Loaded {} clients", clientBalances.size());
+        logger.info(clientBalances.toString());
 
         clients = ConfigLoader.loadClientsFromConfig(clientDetailsPath);
 
