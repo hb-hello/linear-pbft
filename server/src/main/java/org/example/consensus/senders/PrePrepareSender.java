@@ -1,5 +1,6 @@
 package org.example.consensus.senders;
 
+import com.google.protobuf.ByteString;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.example.MessageServiceOuterClass;
@@ -47,17 +48,23 @@ public class PrePrepareSender extends MessageSender {
         logger.info("Calculated next sequence number {} for PrePrepare in view {}",
                 seqNum, state.getViewNumber());
 
+        ByteString digestByteString = ByteString.copyFrom(digest);
+        logger.info("Generated digest {} for PrePrepare in view {} seq {}",
+                digestByteString,
+                state.getViewNumber(),
+                seqNum);
+
         // Build PrePrepare message
         MessageServiceOuterClass.PrePrepareMessage prePrepareMsg =
                 MessageServiceOuterClass.PrePrepareMessage.newBuilder()
                         .setViewNumber(state.getViewNumber())
                         .setSequenceNumber(seqNum)
-                        .setDigest(com.google.protobuf.ByteString.copyFrom(digest))
+                        .setDigest(digestByteString)
                         .build();
 
         MessageServiceOuterClass.PrePrepareMessage signedPrePrepareMsg = (MessageServiceOuterClass.PrePrepareMessage) auth.sign(prePrepareMsg);
 
-        state.appendServerMessage(prePrepareMsg);
+        state.appendServerMessage(signedPrePrepareMsg);
 
         MessageServiceOuterClass.PrePrepareRequest request =
                 MessageServiceOuterClass.PrePrepareRequest.newBuilder()

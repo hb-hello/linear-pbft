@@ -1,11 +1,16 @@
 package org.example.consensus.senders;
 
+import com.google.protobuf.ByteString;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.example.MessageServiceOuterClass;
 import org.example.crypto.MessageAuthenticator;
 import org.example.messaging.CommunicationLogger;
 import org.example.messaging.MessageSender;
+import org.example.messaging.ServerMessage;
 import org.example.serverstate.ServerState;
+
+import java.util.Map;
 
 public class CommitSender extends MessageSender {
     private static final Logger logger = LogManager.getLogger(CommitSender.class);
@@ -43,7 +48,47 @@ public class CommitSender extends MessageSender {
         };
 
         // Send the signed Commit to the collector
-        send(state.getCollectorServerId(), signedCommitMsg, (stub, signed) -> stub.commit((org.example.MessageServiceOuterClass.CommitMessage) signed));
+        if (!state.isCollector()) send(state.getCollectorServerId(), signedCommitMsg, (stub, signed) -> stub.commit((org.example.MessageServiceOuterClass.CommitMessage) signed));
         logger.info("Sent Commit for view {} seq {}", viewNumber, sequenceNumber);
+    }
+
+    public void broadcastAggregatedCommit(long viewNumber, long sequenceNumber) {
+
+        if (state.hasAggregatedCommit(viewNumber, sequenceNumber)) {
+            logger.info("Aggregated Commit for view {} seq {} already exists in state, not creating another", viewNumber, sequenceNumber);
+            return;
+        }
+
+        logger.info("Creating aggregated Commit for view {} seq {}", viewNumber, sequenceNumber);
+
+        Map<String, ByteString> commitSignatures = state.getQuorumSignatures(ServerMessage.PREPARE, viewNumber, sequenceNumber);
+
+        if (commitSignatures.isEmpty()) {
+            logger.warn("No Commit quorum found to aggregate for view {} seq {}", viewNumber, sequenceNumber);
+            return;
+        }
+
+        ByteString digest = state.getQuorumDigest(ServerMessage.PREPARE, viewNumber, sequenceNumber);
+
+        // Build AggregatedCommit message
+        MessageServiceOuterClass.CommitMessage aggregatedCommitMsg =
+                MessageServiceOuterClass.CommitMessage.newBuilder()
+                        .setViewNumber(viewNumber)
+                        .setSequenceNumber(sequenceNumber)
+                        .setDigest(digest)
+                        .build();
+
+        MessageServiceOuterClass.CommitMessage signedCommitMsg =
+                (MessageServiceOuterClass.CommitMessage) auth.signWithAggregateTss(aggregatedCommitMsg, commitSignatures);
+
+        if (!state.appendServerMessage(signedCommitMsg)) {
+            logger.warn("Failed to append Aggregated Commit message to state for view {} seq {}, likely due to duplicate check", viewNumber, sequenceNumber);
+            return;
+        };
+
+        broadcast(signedCommitMsg, (stub, signed) -> stub.commit((MessageServiceOuterClass.CommitMessage) signed));
+        logger.info("Broadcasted Aggregated Commit for view {} seq {}", viewNumber, sequenceNumber);
+
+        logger.info("Committed request for view {} seq {}, now executing", viewNumber, sequenceNumber);
     }
 }

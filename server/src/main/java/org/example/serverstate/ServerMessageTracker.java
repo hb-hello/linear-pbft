@@ -13,7 +13,7 @@ import java.util.*;
  * Tracks server-to-server PBFT messages with efficient lookup using message indices.
  * Uses ServerMessage.getMessageIndexWithSender() for unique indexing (including sender ID)
  * and ServerMessage.getMessageIndex() for quorum tracking (without sender ID).
- *
+ * <p>
  * Note: This class is NOT thread-safe. It relies on external synchronization provided by ServerState,
  * which serializes all access through a single-threaded executor.
  */
@@ -44,8 +44,8 @@ public class ServerMessageTracker {
         String messageIndexWithSender = message.getMessageIndexWithSender();
         String messageIndex = message.getMessageIndex();
 
-        // Check for duplicate before adding (using index with sender)
-        if (index.containsKey(messageIndexWithSender)) {
+        // Check for duplicate before adding (using index with sender) - only for aggregated messages
+        if (index.containsKey(messageIndexWithSender) && (index.get(messageIndexWithSender).isAggregated() || !message.isAggregated())) {
             logger.info("Duplicate message detected: index={}. Skipping addition.", messageIndexWithSender);
             return false;
         }
@@ -67,7 +67,7 @@ public class ServerMessageTracker {
      * Uses the ServerConsensusMessageTracker to check quorum.
      *
      * @param serverMessage The server message to check
-     * @param quorumSize The required quorum size
+     * @param quorumSize    The required quorum size
      * @return true if quorum is met, false otherwise
      */
     public boolean checkMessageQuorum(ServerMessage serverMessage, int quorumSize) {
@@ -121,15 +121,15 @@ public class ServerMessageTracker {
             }
         }
 
-        logger.info("Retrieved {} signatures for message index {}", signaturesBySender.size(), messageIndex);
+//        logger.info("Retrieved {} signatures for message index {}", signaturesBySender.size(), messageIndex);
         return signaturesBySender;
     }
 
     /**
      * Get the signatures of messages that contributed to reaching quorum for a specific message type/view/sequence.
      *
-     * @param messageType The message type (e.g., "PrepareMessage", "CommitMessage")
-     * @param viewNumber The view number
+     * @param messageType    The message type (e.g., "PrepareMessage", "CommitMessage")
+     * @param viewNumber     The view number
      * @param sequenceNumber The sequence number
      * @return Map of sender ID to signature ByteString from messages that contributed to quorum, or empty map if none
      */
@@ -157,13 +157,8 @@ public class ServerMessageTracker {
     }
 
     public ByteString getQuorumValue(String messageType, long viewNumber, long sequenceNumber) {
-        try {
-            String messageIndex = String.format("%s:%d:%d", messageType, viewNumber, sequenceNumber);
-            return ByteString.copyFrom(consensusTracker.getQuorumValue(messageIndex), "UTF-8") ;
-        } catch (UnsupportedEncodingException e) {
-            logger.error("Error getting quorum value for {}:{}:{}", messageType, viewNumber, sequenceNumber, e);
-            return null;
-        }
+        String messageIndex = String.format("%s:%d:%d", messageType, viewNumber, sequenceNumber);
+        return consensusTracker.getQuorumValue(messageIndex);
     }
 
     /**
@@ -180,10 +175,10 @@ public class ServerMessageTracker {
      * Find a message by message type, view number, sequence number, and sender ID.
      * Constructs the index string and looks up the message.
      *
-     * @param messageType The message type (e.g., "PrePrepareRequest", "PrepareMessage", "CommitMessage")
-     * @param viewNumber The view number
+     * @param messageType    The message type (e.g., "PrePrepareRequest", "PrepareMessage", "CommitMessage")
+     * @param viewNumber     The view number
      * @param sequenceNumber The sequence number
-     * @param senderId The sender ID
+     * @param senderId       The sender ID
      * @return The message if found, null otherwise
      */
     public ServerMessage findMessage(String messageType, long viewNumber, long sequenceNumber, String senderId) {
@@ -201,6 +196,16 @@ public class ServerMessageTracker {
      */
     public List<ServerMessage> getAllMessages() {
         return new ArrayList<>(allMessages);
+    }
+
+    public List<ServerMessage> getMessagesByType(String messageType) {
+        List<ServerMessage> filteredMessages = new ArrayList<>();
+        for (ServerMessage msg : allMessages) {
+            if (msg.getMessageType().equals(messageType)) {
+                filteredMessages.add(msg);
+            }
+        }
+        return filteredMessages;
     }
 
     /**

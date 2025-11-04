@@ -109,25 +109,6 @@ class PrepareHandlerTest {
     }
 
     @Test
-    void testHandle_fromPrimary_rejected() {
-        // Arrange
-        long view = 1L;
-        long seq = 1L;
-        String primaryId = state.getPrimaryServerId();
-        MessageServiceOuterClass.PrepareMessage prepareMsg =
-                createPrepareMessage(view, seq, "digest", primaryId);
-
-        // Act
-        handler.handle(prepareMsg);
-
-        // Assert
-        assertNull(state.findPrepare(view, seq, primaryId),
-                "Prepare from primary should be rejected");
-        assertEquals(0, commitSender.getSendCount(),
-                "Commit should not be sent for rejected message");
-    }
-
-    @Test
     void testHandle_wrongView_rejected() {
         // Arrange
         state.setViewAndPrimary(1L); // Current view is 1

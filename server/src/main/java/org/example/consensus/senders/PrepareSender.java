@@ -34,7 +34,7 @@ public class PrepareSender extends MessageSender {
                 org.example.MessageServiceOuterClass.PrepareMessage.newBuilder()
                         .setViewNumber(viewNumber)
                         .setSequenceNumber(sequenceNumber)
-                        .setDigest(com.google.protobuf.ByteString.copyFrom(digest))
+                        .setDigest(ByteString.copyFrom(digest))
                         .build();
 
         MessageServiceOuterClass.PrepareMessage signedPrepareMsg =
@@ -45,11 +45,17 @@ public class PrepareSender extends MessageSender {
             return;
         };
 
-        send(state.getCollectorServerId(), signedPrepareMsg, (stub, signed) -> stub.prepare((MessageServiceOuterClass.PrepareMessage) signed));
+        if (!state.isCollector()) send(state.getCollectorServerId(), signedPrepareMsg, (stub, signed) -> stub.prepare((MessageServiceOuterClass.PrepareMessage) signed));
         logger.info("Sent Prepare for view {} seq {}", viewNumber, sequenceNumber);
     }
 
     public void broadcastAggregatedPrepare(long viewNumber, long sequenceNumber) {
+
+        if (state.hasAggregatedPrepare(viewNumber, sequenceNumber)) {
+            logger.info("Aggregated Prepare for view {} seq {} already exists in state, not creating another", viewNumber, sequenceNumber);
+            return;
+        }
+
         logger.info("Creating aggregated Prepare for view {} seq {}", viewNumber, sequenceNumber);
 
         Map<String, ByteString> prepareSignatures = state.getQuorumSignatures(ServerMessage.PREPARE, viewNumber, sequenceNumber);
@@ -69,15 +75,23 @@ public class PrepareSender extends MessageSender {
                         .setDigest(digest)
                         .build();
 
-        MessageServiceOuterClass.PrepareMessage signedPrepareMsg =
-                (MessageServiceOuterClass.PrepareMessage) auth.signWithAggregateTss(aggregatedPrepareMsg, prepareSignatures);
+        MessageServiceOuterClass.PrepareMessage signedPrepareMsg = null;
+        try {
+            signedPrepareMsg = (MessageServiceOuterClass.PrepareMessage) auth.signWithAggregateTss(aggregatedPrepareMsg, prepareSignatures);
+        } catch (Exception e) {
+            logger.error("Failed to sign Aggregated Prepare for view {} seq {}: {}", viewNumber, sequenceNumber, e.getMessage());
+            return;
+        }
+
+        logger.info("Signed with aggregated signature for Aggregated Prepare for view {} seq {}, isAggregated is set to: {}",
+                viewNumber, sequenceNumber, signedPrepareMsg.getIsAggregated());
 
         if (!state.appendServerMessage(signedPrepareMsg)) {
             logger.warn("Failed to append Aggregated Prepare message to state for view {} seq {}, likely due to duplicate check", viewNumber, sequenceNumber);
             return;
         };
 
-        broadcast(aggregatedPrepareMsg, (stub, signed) -> stub.prepare((MessageServiceOuterClass.PrepareMessage) signed));
+        broadcast(signedPrepareMsg, (stub, signed) -> stub.prepare((MessageServiceOuterClass.PrepareMessage) signed));
         logger.info("Broadcasted Aggregated Prepare for view {} seq {}", viewNumber, sequenceNumber);
     }
 }

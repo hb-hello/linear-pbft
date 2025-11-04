@@ -28,32 +28,31 @@ public class ClientRequestHandler {
         logger.info("Handling ClientRequest from client {}: timestamp {}, operation {}",
                 clientId, timestamp, operation.getOpCase());
 
-            state.runSync(() -> {
-                logger.info("Entering state transition for ClientRequest from client {}: timestamp {}",
-                        clientId, timestamp);
-                if (timestamp <= state.lastReplyTimestamp(clientId)) {
-                    logger.info("Ignoring stale ClientRequest from client {}: timestamp {}", clientId, timestamp);
-                    // TODO: resend cached reply
-                    return;
-                }
 
-                if (!state.appendServerMessage(request)) {
-                    logger.info("Duplicate ClientRequest from client {}: timestamp {}, ignoring",
-                            clientId, timestamp);
-                    return;
-                }
-                // TODO: refresh liveness timer
+        logger.info("Entering state transition for ClientRequest from client {}: timestamp {}",
+                clientId, timestamp);
+        if (timestamp <= state.lastReplyTimestamp(clientId)) {
+            logger.info("Ignoring stale ClientRequest from client {}: timestamp {}", clientId, timestamp);
+            // TODO: resend cached reply
+            return;
+        }
 
-                if (!state.isPrimary()) {
-                    String primaryServerId = state.getPrimaryServerId();
-                    logger.info("Forwarding ClientRequest from client {} to primary server {}", clientId, primaryServerId);
-                    sender.forwardClientRequest(primaryServerId, request);
-                    return;
-                }
+        if (!state.appendServerMessage(request)) {
+            logger.info("Duplicate ClientRequest from client {}: timestamp {}, ignoring",
+                    clientId, timestamp);
+            return;
+        }
+        // TODO: refresh liveness timer
 
-                // initiate PBFT protocol
-                prePrepareSender.attemptPrePrepare(request);
-            });
+        if (!state.isPrimary()) {
+            String primaryServerId = state.getPrimaryServerId();
+            logger.info("Forwarding ClientRequest from client {} to primary server {}", clientId, primaryServerId);
+            sender.forwardClientRequest(primaryServerId, request);
+            return;
+        }
+
+        // initiate PBFT protocol
+        prePrepareSender.attemptPrePrepare(request);
 
     }
 }

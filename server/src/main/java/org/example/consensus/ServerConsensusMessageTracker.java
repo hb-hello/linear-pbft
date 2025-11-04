@@ -18,13 +18,13 @@ import java.util.concurrent.TimeoutException;
  *
  * Overrides the parent's tracked map to use ServerConsensusMessage instances for messageIndexWithSender tracking.
  */
-public class ServerConsensusMessageTracker extends ConsensusMessageTracker<String, String> {
+public class ServerConsensusMessageTracker extends ConsensusMessageTracker<String, ByteString> {
 
     // Override parent's tracked field to use ServerConsensusMessage instances
     // This allows us to access ServerConsensusMessage-specific methods like addMessageIndexWithSender
     @SuppressWarnings("unchecked")
-    protected final java.util.concurrent.ConcurrentMap<String, ServerConsensusMessage<String>> tracked =
-            (java.util.concurrent.ConcurrentMap<String, ServerConsensusMessage<String>>) (java.util.concurrent.ConcurrentMap<?, ?>) super.tracked;
+    protected final java.util.concurrent.ConcurrentMap<String, ServerConsensusMessage<ByteString>> tracked =
+            (java.util.concurrent.ConcurrentMap<String, ServerConsensusMessage<ByteString>>) (java.util.concurrent.ConcurrentMap<?, ?>) super.tracked;
 
     /**
      * Creates a ServerConsensusMessageTracker that uses digest comparison as the consensus value.
@@ -40,8 +40,7 @@ public class ServerConsensusMessageTracker extends ConsensusMessageTracker<Strin
                 msg -> ServerMessage.wrap(msg).getSenderId().orElse("unknown"),
                 // Extract value using digest as hex string for proper equality
                 msg -> {
-                    ByteString digest = ServerMessage.wrap(msg).getDigest().orElse(com.google.protobuf.ByteString.EMPTY);
-                    return digest.toStringUtf8();
+                    return ServerMessage.wrap(msg).getDigest().orElse(ByteString.EMPTY);
                 }
         );
     }
@@ -64,8 +63,7 @@ public class ServerConsensusMessageTracker extends ConsensusMessageTracker<Strin
         // First ensure we have a ServerConsensusMessage (not just ConsensusMessage)
         tracked.computeIfAbsent(requestId, id -> {
             return new ServerConsensusMessage<>(id, msg -> {
-                com.google.protobuf.ByteString digest = msg.getDigest().orElse(com.google.protobuf.ByteString.EMPTY);
-                return digest.toStringUtf8();
+                return msg.getDigest().orElse(com.google.protobuf.ByteString.EMPTY);
             });
         });
 
@@ -73,7 +71,7 @@ public class ServerConsensusMessageTracker extends ConsensusMessageTracker<Strin
         super.recordMessage(requestId, reply.getMessage());
 
         // Track the messageIndexWithSender
-        ServerConsensusMessage<String> serverConsensusMsg = tracked.get(requestId);
+        ServerConsensusMessage<ByteString> serverConsensusMsg = tracked.get(requestId);
         if (serverConsensusMsg != null) {
             String messageIndexWithSender = reply.getMessageIndexWithSender();
             serverConsensusMsg.addMessageIndexWithSender(messageIndexWithSender);
@@ -108,7 +106,7 @@ public class ServerConsensusMessageTracker extends ConsensusMessageTracker<Strin
      * @return true if quorum is met, false otherwise
      */
     public boolean checkMessageQuorum(String requestId, int quorumSize) {
-        ServerConsensusMessage<String> serverConsensusMsg = tracked.get(requestId);
+        ServerConsensusMessage<ByteString> serverConsensusMsg = tracked.get(requestId);
         return serverConsensusMsg != null && serverConsensusMsg.checkQuorum(quorumSize);
     }
 
@@ -155,7 +153,7 @@ public class ServerConsensusMessageTracker extends ConsensusMessageTracker<Strin
      * @return immutable copy of the set of messageIndexWithSender, or empty set if none tracked
      */
     public Set<String> getMessageIndicesWithSender(String requestId) {
-        ServerConsensusMessage<String> serverConsensusMsg = tracked.get(requestId);
+        ServerConsensusMessage<ByteString> serverConsensusMsg = tracked.get(requestId);
         return serverConsensusMsg != null ? serverConsensusMsg.getMessageIndicesWithSender() : Set.of();
     }
 
@@ -166,7 +164,7 @@ public class ServerConsensusMessageTracker extends ConsensusMessageTracker<Strin
      * @return count of tracked messages, or 0 if none tracked
      */
     public int getMessageIndicesWithSenderCount(String requestId) {
-        ServerConsensusMessage<String> serverConsensusMsg = tracked.get(requestId);
+        ServerConsensusMessage<ByteString> serverConsensusMsg = tracked.get(requestId);
         return serverConsensusMsg != null ? serverConsensusMsg.getMessageIndicesWithSender().size() : 0;
     }
 }

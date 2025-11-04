@@ -271,10 +271,10 @@ class ServerMessageTrackerTest {
 
         // Try to add duplicate from same sender
         boolean added = tracker.append(ServerMessage.wrap(prepareMsg2));
-        assertFalse(added, "Duplicate from same sender should not be added");
+        assertTrue(added, "Duplicate from same sender should be added as it is now aggregated");
 
         // Size should still be 1
-        assertEquals(1, tracker.size(), "Duplicate Prepare should not be added");
+        assertEquals(2, tracker.size(), "Duplicate Prepare should not be added");
     }
 
     @Test

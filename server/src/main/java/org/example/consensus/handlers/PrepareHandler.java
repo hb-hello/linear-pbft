@@ -26,7 +26,10 @@ public class PrepareHandler {
 
     private boolean isValid(MessageServiceOuterClass.PrepareMessage prepareMessage) {
         try {
-            if (Objects.equals(state.getPrimaryServerId(), prepareMessage.getSignerId())) {
+            if (!Objects.equals(state.getCollectorServerId(), prepareMessage.getSignerId()) && !state.isCollector()) {
+                logger.info("Prepare message signer {} is not the collector {}",
+                        prepareMessage.getSignerId(),
+                        state.getCollectorServerId());
                 return false;
             }
             state.ensureInView(prepareMessage.getViewNumber());
@@ -50,7 +53,14 @@ public class PrepareHandler {
             return;
         }
 
-        state.appendServerMessage(prepareMessage);
+        if (!state.appendServerMessage(prepareMessage)) {
+            logger.info("Failed to append Prepare message to state for view {} seq {}, likely due to duplicate check",
+                    viewNumber, sequenceNumber);
+            return;
+        }
+
+        logger.info("Received digest in Prepare for view {} seq {}: {}",
+                viewNumber, sequenceNumber, prepareMessage.getDigest());
 
         if(!state.isPrepared(viewNumber, sequenceNumber, quorumSize)) {
             logger.info("Cannot send Commit / Aggregated Prepare for view {} seq {}: not prepared",

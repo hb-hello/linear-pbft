@@ -84,6 +84,10 @@ public interface ServerMessage {
         return extractLongField("timestamp");
     }
 
+    default boolean isAggregated() {
+        return extractBooleanField("is_aggregated").orElse(false);
+    }
+
     /**
      * Get the message type as a string for logging/debugging.
      */
@@ -155,6 +159,7 @@ public interface ServerMessage {
     default String getMessageIndexWithSender() {
         String baseIndex = getMessageIndex();
         Optional<String> senderId = getSenderId();
+//        System.out.println("While appending and indexing server message - Sender ID: " + senderId.orElse("not found"));
 
         return senderId.map(s -> baseIndex + ":" + s).orElse(baseIndex);
     }
@@ -210,9 +215,16 @@ public interface ServerMessage {
             hasFields = true;
         }
 
+        Optional<String> senderId = getSenderId();
+        if (senderId.isPresent()) {
+            if (hasFields) sb.append(", ");
+            sb.append("senderId=").append(senderId.get());
+            hasFields = true;
+        }
+
         // Add message index
         if (hasFields) sb.append(", ");
-        sb.append("index=").append(getMessageIndex());
+        sb.append("index=").append(getMessageIndexWithSender());
 
         sb.append("}");
         return sb.toString();
@@ -311,8 +323,7 @@ public interface ServerMessage {
 
         // For PrePrepareRequest, check the nested pre_prepare_message field
         Descriptors.FieldDescriptor nestedField = descriptor.findFieldByName("pre_prepare_message");
-        if (nestedField != null && nestedField.getType() == Descriptors.FieldDescriptor.Type.MESSAGE
-                && msg.hasField(nestedField)) {
+        if (nestedField != null && nestedField.getType() == Descriptors.FieldDescriptor.Type.MESSAGE) {
             Object nestedObj = msg.getField(nestedField);
             if (nestedObj instanceof Message) {
                 Message nestedMsg = (Message) nestedObj;
@@ -321,6 +332,38 @@ public interface ServerMessage {
                     Object value = nestedMsg.getField(nestedTargetField);
                     if (value instanceof String && !((String) value).isEmpty()) {
                         return Optional.of((String) value);
+                    }
+                }
+            }
+        }
+
+        return Optional.empty();
+    }
+
+    default Optional<Boolean> extractBooleanField(String fieldName) {
+        Message msg = getMessage();
+        Descriptors.Descriptor descriptor = msg.getDescriptorForType();
+
+        // First, try to find the field directly in the message
+        Descriptors.FieldDescriptor field = descriptor.findFieldByName(fieldName);
+        if (field != null) {
+            Object value = msg.getField(field);
+            if (value instanceof Boolean) {
+                return Optional.of((Boolean) value);
+            }
+        }
+
+        // For PrePrepareRequest, check the nested pre_prepare_message field
+        Descriptors.FieldDescriptor nestedField = descriptor.findFieldByName("pre_prepare_message");
+        if (nestedField != null && nestedField.getType() == Descriptors.FieldDescriptor.Type.MESSAGE) {
+            Object nestedObj = msg.getField(nestedField);
+            if (nestedObj instanceof Message) {
+                Message nestedMsg = (Message) nestedObj;
+                Descriptors.FieldDescriptor nestedTargetField = nestedMsg.getDescriptorForType().findFieldByName(fieldName);
+                if (nestedTargetField != null) {
+                    Object value = nestedMsg.getField(nestedTargetField);
+                    if (value instanceof Boolean) {
+                        return Optional.of((Boolean) value);
                     }
                 }
             }

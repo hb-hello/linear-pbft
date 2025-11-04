@@ -83,7 +83,7 @@ public final class ServerState {
         return name != null && name.startsWith("-state-manager");
     }
 
-    public <T> CompletableFuture<T> runAsync(Callable<T> task) {
+    private <T> CompletableFuture<T> runAsync(Callable<T> task) {
         CompletableFuture<T> f = new CompletableFuture<>();
         stateExec.execute(() -> {
             try {
@@ -96,14 +96,14 @@ public final class ServerState {
     }
 
     // Overload for void-returning work
-    public CompletableFuture<Void> runAsync(Runnable task) {
+    private CompletableFuture<Void> runAsync(Runnable task) {
         return runAsync(() -> {
             task.run();
             return null;
         });
     }
 
-    public <T> T runSync(Callable<T> task) {
+    private <T> T runSync(Callable<T> task) {
         if (onStateThread()) {
             try {
 //                logger.info("Running task synchronously on state thread");
@@ -125,7 +125,7 @@ public final class ServerState {
     }
 
     // Overload for void-returning work
-    public void runSync(Runnable task) {
+    private void runSync(Runnable task) {
         runSync(() -> {
             task.run();
             return null;
@@ -298,12 +298,16 @@ public final class ServerState {
 
     public ByteString getPrePrepareDigest(long viewNumber, long sequenceNumber) {
         return runSync(() -> {
+//            logger.info("Getting PrePrepare digest for view {} seq {}", viewNumber, sequenceNumber);
             ServerMessage prePrepareMsg = findPrePrepare(viewNumber, sequenceNumber);
             if (prePrepareMsg != null) {
+//                logger.info("Found PrePrepare message: {}", prePrepareMsg.toDetailedString());
                 MessageServiceOuterClass.PrePrepareMessage prePrepareMessage =
                         (MessageServiceOuterClass.PrePrepareMessage) prePrepareMsg.getMessage();
+//                logger.info("PrePrepare digest found: {}", prePrepareMessage.getDigest());
                 return prePrepareMessage.getDigest();
             } else {
+                logger.info("No PrePrepare message found for view {} seq {}", viewNumber, sequenceNumber);
                 return null;
             }
         });
@@ -317,23 +321,56 @@ public final class ServerState {
         return runSync(() -> serverMessageTracker.findMessage(ServerMessage.PREPARE, viewNumber, sequenceNumber, senderId));
     }
 
+    public ServerMessage findAggregatedPrepare(long viewNumber, long sequenceNumber) {
+        return runSync(() -> {
+            if (hasAggregatedPrepare(viewNumber, sequenceNumber)) {;
+                return serverMessageTracker.findMessage(ServerMessage.PREPARE, viewNumber, sequenceNumber, collectorServerId);
+            }
+            return null;
+        });
+    }
+
     public boolean hasPrepare(long viewNumber, long sequenceNumber) {
         return runSync(() -> serverMessageTracker.hasMessage(ServerMessage.PREPARE, viewNumber, sequenceNumber));
     }
 
+    public boolean hasAggregatedPrepare(long viewNumber, long sequenceNumber) {
+        return runSync(() -> {
+            ServerMessage message = serverMessageTracker.findMessage(ServerMessage.PREPARE, viewNumber, sequenceNumber, collectorServerId);
+            if(message == null) {
+                return false;
+            }
+            return message.isAggregated();
+        });
+    }
+
     public boolean isPrepared(long viewNumber, long sequenceNumber, int quorumSize) {
         return runSync(() -> {
+//            logger.info("Checking if prepared for view {} seq {}", viewNumber, sequenceNumber);
+
             if (!hasPrePrepare(viewNumber, sequenceNumber)) {
+                logger.info("No PrePrepare for view {} seq {}, cannot be prepared", viewNumber, sequenceNumber);
                 return false;
             }
 
             int quorumSizeExcludingPrePrepare = quorumSize - 1;
+            boolean quorumCheck = serverMessageTracker.checkMessageQuorum(ServerMessage.PREPARE, viewNumber, sequenceNumber, quorumSizeExcludingPrePrepare);
+            boolean hasAggregatedPrepare = hasAggregatedPrepare(viewNumber, sequenceNumber);
 
-            if (serverMessageTracker.checkMessageQuorum(ServerMessage.PREPARE, viewNumber, sequenceNumber, quorumSizeExcludingPrePrepare)) {
+            if (quorumCheck || hasAggregatedPrepare) {
                 // check if pre-prepare digest matches the prepare digests
-                ByteString digest = getQuorumDigest(ServerMessage.PREPARE, viewNumber, sequenceNumber);
+                ByteString digest = hasAggregatedPrepare ? findAggregatedPrepare(viewNumber, sequenceNumber).getDigest().orElse(null) : getQuorumDigest(ServerMessage.PREPARE, viewNumber, sequenceNumber);
+//                logger.info("For view {} seq {}, prepare digest is {} and pre-prepare digest is {}", viewNumber, sequenceNumber, digest, getPrePrepareDigest(viewNumber, sequenceNumber));
+//                logger.info("Are they the same? {}", Objects.equals(digest, getPrePrepareDigest(viewNumber, sequenceNumber)));
+                if (digest == null) {
+                    logger.info("Digest from prepares is null for view {} seq {}, cannot be prepared", viewNumber, sequenceNumber);
+                    return false;
+                }
                 return Objects.equals(digest, getPrePrepareDigest(viewNumber, sequenceNumber));
-            } else return false;
+            } else {
+                logger.info("Not enough Prepare messages for view {} seq {}, cannot be prepared", viewNumber, sequenceNumber);
+                return false;
+            }
         });
     }
 
@@ -341,8 +378,27 @@ public final class ServerState {
         return runSync(() -> serverMessageTracker.findMessage(ServerMessage.COMMIT, viewNumber, sequenceNumber, senderId));
     }
 
+    public ServerMessage findAggregatedCommit(long viewNumber, long sequenceNumber) {
+        return runSync(() -> {
+            if (hasAggregatedCommit(viewNumber, sequenceNumber)) {;
+                return serverMessageTracker.findMessage(ServerMessage.COMMIT, viewNumber, sequenceNumber, collectorServerId);
+            }
+            return null;
+        });
+    }
+
     public boolean hasCommit(long viewNumber, long sequenceNumber) {
         return runSync(() -> serverMessageTracker.hasMessage(ServerMessage.COMMIT, viewNumber, sequenceNumber));
+    }
+
+    public boolean hasAggregatedCommit(long viewNumber, long sequenceNumber) {
+        return runSync(() -> {
+            ServerMessage message = serverMessageTracker.findMessage(ServerMessage.COMMIT, viewNumber, sequenceNumber, collectorServerId);
+            if(message == null) {
+                return false;
+            }
+            return message.isAggregated();
+        });
     }
 
     public boolean isCommitted(long viewNumber, long sequenceNumber, int quorumSize) {
@@ -355,9 +411,16 @@ public final class ServerState {
                 return false;
             }
 
-            if (serverMessageTracker.checkMessageQuorum(ServerMessage.COMMIT, viewNumber, sequenceNumber, quorumSize)) {
+            boolean quorumCheck = serverMessageTracker.checkMessageQuorum(ServerMessage.COMMIT, viewNumber, sequenceNumber, quorumSize);
+            boolean hasAggregatedCommit = hasAggregatedCommit(viewNumber, sequenceNumber);
+
+            if (quorumCheck || hasAggregatedCommit) {
                 // check if pre-prepare digest matches the commit digests
-                ByteString digest = getQuorumDigest(ServerMessage.COMMIT, viewNumber, sequenceNumber);
+                ByteString digest = hasAggregatedCommit ? findAggregatedCommit(viewNumber, sequenceNumber).getDigest().orElse(null) : getQuorumDigest(ServerMessage.COMMIT, viewNumber, sequenceNumber);
+                if (digest == null) {
+                    logger.info("Digest from commits is null for view {} seq {}, cannot be prepared", viewNumber, sequenceNumber);
+                    return false;
+                }
                 return Objects.equals(digest, getPrePrepareDigest(viewNumber, sequenceNumber));
             } else {
                 return false;

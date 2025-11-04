@@ -3,11 +3,8 @@ package org.example;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.example.config.Config;
-import org.example.consensus.handlers.ClientRequestHandler;
-import org.example.consensus.handlers.PrePrepareHandler;
-import org.example.consensus.handlers.PrepareHandler;
+import org.example.consensus.handlers.*;
 import org.example.consensus.senders.*;
-import org.example.messaging.MessageSender;
 import org.example.messaging.ServerMessageReceiver;
 import org.example.serverstate.ServerState;
 
@@ -15,7 +12,7 @@ public class ServerNode extends Node {
 
     private static final Logger logger = LogManager.getLogger(ServerNode.class);
 
-    private final int MAJORITY_COUNT = 4;
+    private final int MAJORITY_COUNT = 5;
     private final int OTHER_SERVER_COUNT = 6;
     private final long REQUEST_TIMEOUT_MILLIS = 1000;
 
@@ -30,6 +27,7 @@ public class ServerNode extends Node {
     private final ClientRequestHandler clientRequestHandler;
     private final PrePrepareHandler prePrepareHandler;
     private final PrepareHandler prepareHandler;
+    private final CommitHandler commitHandler;
 
     private final ServerState state;
 
@@ -47,6 +45,7 @@ public class ServerNode extends Node {
         this.clientRequestHandler = new ClientRequestHandler(state, clientRequestSender, prePrepareSender);
         this.prePrepareHandler = new PrePrepareHandler(state, auth, prepareSender);
         this.prepareHandler = new PrepareHandler(state, MAJORITY_COUNT, prepareSender, commitSender);
+        this.commitHandler = new CommitHandler(state, MAJORITY_COUNT, commitSender, clientReplySender);
     }
 
     public void setActive(boolean active) {
@@ -102,7 +101,7 @@ public class ServerNode extends Node {
 
     public void handleCommit(MessageServiceOuterClass.CommitMessage commitMessage) {
         executorManager.submitMessageProcessing(() -> {
-            // TODO: add commit handler
+            commitHandler.handle(commitMessage);
         });
     }
 

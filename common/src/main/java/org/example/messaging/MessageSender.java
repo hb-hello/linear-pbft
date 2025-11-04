@@ -55,10 +55,10 @@ public class MessageSender {
     // Generic method to send an already-signed message using the provided gRPC method
     protected void send(String targetNodeId, Message signedMessage, BiConsumer<MessageServiceGrpc.MessageServiceFutureStub, Message> method) {
         ensureActive();
-        logger.info("Sending pre-signed message to node {}: {}", targetNodeId, signedMessage.getClass());
+        logger.info("Sending pre-signed message to node {}: {}", targetNodeId, signedMessage.getDescriptorForType().getName());
         MessageServiceGrpc.MessageServiceFutureStub stub = stubManager.getFutureStub(targetNodeId);
         method.accept(stub, signedMessage);
-        logger.info("Message sent to node {}: {}", targetNodeId, signedMessage.getClass());
+        logger.info("Message sent to node {}: {}", targetNodeId, signedMessage.getDescriptorForType().getName());
     }
 
     protected void signWithAggregateTSSAndSend(String targetNodeId, Message message, BiConsumer<MessageServiceGrpc.MessageServiceFutureStub, Message> method, Map<String, ByteString> partialSignatures) {
@@ -70,8 +70,7 @@ public class MessageSender {
     protected void broadcast(Message message, BiConsumer<MessageServiceGrpc.MessageServiceFutureStub, Message> method) {
         ensureActive();
         for (String targetNodeId : Config.getServerIdsExcept(nodeId)) {
-            MessageServiceGrpc.MessageServiceFutureStub stub = stubManager.getFutureStub(targetNodeId);
-            method.accept(stub, message);
+            send(targetNodeId, message, method);
         }
     }
 

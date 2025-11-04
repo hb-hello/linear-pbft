@@ -7,6 +7,7 @@ import org.apache.logging.log4j.Logger;
 import org.example.MessageServiceOuterClass;
 import org.example.consensus.senders.PrepareSender;
 import org.example.crypto.MessageAuthenticator;
+import org.example.messaging.MessageUtil;
 import org.example.messaging.ServerMessage;
 import org.example.serverstate.ServerState;
 
@@ -63,23 +64,31 @@ public class PrePrepareHandler {
 
         MessageServiceOuterClass.PrePrepareMessage prePrepareMessage = prePrepareRequest.getPrePrepareMessage();
 
-        // run atomically
-        state.runSync(() -> {
-            if (!isValid(prePrepareMessage)) {
-                logger.info("Invalid PrePrepare message, ignoring");
-                return;
-            }
+        if (!isValid(prePrepareMessage)) {
+            logger.info("Invalid PrePrepare message, ignoring");
+            return;
+        }
 
-            if (!state.appendServerMessage(prePrepareMessage)) {
-                logger.info("Duplicate PrePrepare message detected in state, ignoring");
-                return;
-            }
+        if (!MessageUtil.verifyDigest(prePrepareRequest.getRequest(), prePrepareMessage.getDigest().toByteArray())) {
+            logger.info("PrePrepare message digest does not match client request, ignoring PrePrepare for view {} seq {}",
+                    prePrepareMessage.getViewNumber(), prePrepareMessage.getSequenceNumber());
+            return;
+        }
 
-            state.appendServerMessage(prePrepareRequest.getRequest());
+        logger.info("Digest received in PrePrepare  for view {} seq {} is {}",
+                prePrepareMessage.getViewNumber(),
+                prePrepareMessage.getSequenceNumber(),
+                prePrepareMessage.getDigest());
 
-            prepareSender.sendPrepare(state.getViewNumber(), prePrepareMessage.getSequenceNumber(),
-                    prePrepareMessage.getDigest().toByteArray());
-        });
+        if (!state.appendServerMessage(prePrepareMessage)) {
+            logger.info("Duplicate PrePrepare message detected in state, ignoring");
+            return;
+        }
+
+        state.appendServerMessage(prePrepareRequest.getRequest());
+
+        prepareSender.sendPrepare(state.getViewNumber(), prePrepareMessage.getSequenceNumber(),
+                prePrepareMessage.getDigest().toByteArray());
     }
 
 
