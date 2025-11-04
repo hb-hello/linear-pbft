@@ -38,8 +38,8 @@ class StateMachineOperatorTest {
     @BeforeEach
     void setupOperator() {
         // Pass a no-op callback for testing - replies aren't actually sent in unit tests
-        state = new ServerState("n1", false, stateExec, (request, reply) -> {});
-        operator = new StateMachineOperator(state, (request, reply) -> { });
+        state = new ServerState("n1", false, stateExec, (request, reply) -> {}, (s, seqNum) -> {});
+        operator = new StateMachineOperator(state, (request, reply) -> { }, (s, seqNum) -> { });
     }
 
     private MessageServiceOuterClass.ClientRequest createTransferRequest(String clientId, long timestamp,
@@ -290,18 +290,5 @@ class StateMachineOperatorTest {
                      "Balance should only be deducted once, not twice");
     }
 
-    @Test
-    void testSnapshot_capturesCurrentState() throws Exception {
-        // Execute some operations to change state
-        MessageServiceOuterClass.ClientRequest request = createTransferRequest("client1", 100L, "A", "B", 10.0);
-        operator.executeOperation(request, 1L).get();
-
-        // Take a snapshot
-        Object snapshot = operator.snapshot();
-
-        assertNotNull(snapshot, "Snapshot should not be null");
-        // The snapshot should be a Map of balances
-        assertTrue(snapshot instanceof java.util.Map, "Snapshot should be a Map");
-    }
 }
 

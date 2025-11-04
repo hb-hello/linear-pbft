@@ -6,6 +6,8 @@ import org.example.config.Config;
 import org.example.consensus.handlers.*;
 import org.example.consensus.senders.*;
 import org.example.messaging.ServerMessageReceiver;
+import org.example.serverstate.OperationLogEntry;
+import org.example.serverstate.OperationStatus;
 import org.example.serverstate.ServerState;
 
 public class ServerNode extends Node {
@@ -23,11 +25,13 @@ public class ServerNode extends Node {
     private final PrePrepareSender prePrepareSender;
     private final PrepareSender prepareSender;
     private final CommitSender commitSender;
+    private final CheckpointSender checkpointSender;
 
     private final ClientRequestHandler clientRequestHandler;
     private final PrePrepareHandler prePrepareHandler;
     private final PrepareHandler prepareHandler;
     private final CommitHandler commitHandler;
+    private final CheckpointHandler checkpointHandler;
 
     private final ServerState state;
 
@@ -38,10 +42,15 @@ public class ServerNode extends Node {
         // Create ClientReplySender first
         this.clientReplySender = new ClientReplySender(serverId, commLogger, auth);
 
-        // Create ServerState with a method reference that both sends reply and remembers it
-        // This breaks the circular dependency - StateMachineOperator gets a callback that handles both concerns
+        // Create CheckpointSender
+        this.checkpointSender = new CheckpointSender(serverId, commLogger, auth);
+
+        // Create ServerState with method references for sending replies and checkpoints
+        // This breaks the circular dependency - StateMachineOperator gets callbacks that handle both concerns
         this.state = new ServerState(serverId, false, executorManager.getStateExecutor(),
-                                      this::sendAndRememberReply);
+                                      this::sendAndRememberReply,
+                this.checkpointSender::sendCheckpoint);
+
 
         this.clientRequestSender = new ClientRequestSender(serverId, commLogger, auth);
         this.prePrepareSender = new PrePrepareSender(serverId, state, commLogger, auth);
@@ -53,6 +62,7 @@ public class ServerNode extends Node {
         this.prePrepareHandler = new PrePrepareHandler(state, auth, prepareSender);
         this.prepareHandler = new PrepareHandler(state, MAJORITY_COUNT, prepareSender, commitSender);
         this.commitHandler = new CommitHandler(state, MAJORITY_COUNT, commitSender, clientReplySender);
+        this.checkpointHandler = new CheckpointHandler(state, MAJORITY_COUNT);
     }
 
     public void setActive(boolean active) {
@@ -71,20 +81,7 @@ public class ServerNode extends Node {
     }
 
     public void handleClientRequest(MessageServiceOuterClass.ClientRequest request) {
-
         executorManager.submitMessageProcessing(() -> clientRequestHandler.handle(request));
-
-//        String clientId = request.getClientId();
-//        long timestamp = request.getTimestamp();
-//        MessageServiceOuterClass.Operation operation = request.getOperation();
-//
-//        MessageServiceOuterClass.OperationResult result = state.executeOperation(operation);
-//        logger.info("Executed operation for ClientRequest from client {}: timestamp {}, result {}",
-//                clientId, timestamp, result);
-//
-//        executorManager.submitMessageProcessing(() -> {
-//            clientReplySender.sendClientReply(request, result);
-//        });
     }
 
     public void handlePrePrepare(MessageServiceOuterClass.PrePrepareRequest prePrepareRequest) {
@@ -103,6 +100,20 @@ public class ServerNode extends Node {
         executorManager.submitMessageProcessing(() -> {
             commitHandler.handle(commitMessage);
         });
+    }
+
+    public void handleCheckpoint(MessageServiceOuterClass.CheckpointMessage checkpointMessage) {
+        executorManager.submitMessageProcessing(() -> {
+            checkpointHandler.handle(checkpointMessage);
+        });
+    }
+
+    public String getOperation(long sequenceNumber) {
+        return state.getOperation(sequenceNumber).toString();
+    }
+
+    public OperationStatus getOperationStatus(long sequenceNumber) {
+        return state.getOperationStatus(sequenceNumber);
     }
 
     // Helper method used as callback for StateMachineOperator

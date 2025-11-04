@@ -46,7 +46,7 @@ class PrePrepareHandlerTest {
     @BeforeEach
     void setUp() {
         // Pass a no-op callback for testing - replies aren't actually sent in unit tests
-        state = new ServerState("n1", false, stateExec, (request, reply) -> {});
+        state = new ServerState("n1", false, stateExec, (request, reply) -> {}, (s, seqNum) -> {});
         // Use a mock authenticator that always returns true
         MockMessageAuthenticator mockAuth = new MockMessageAuthenticator();
         // Create a mock PrepareSender that doesn't actually send messages
@@ -168,12 +168,12 @@ class PrePrepareHandlerTest {
         handler.handle(prePrepareRequest1);
         assertTrue(state.hasPrePrepare(1L, 1L), "PrePrepare with seq=1 should be added");
 
-        // Test seq = 100 (at high watermark, inclusive, should be accepted)
+        // Test seq at high watermark (inclusive, should be accepted)
         MessageServiceOuterClass.ClientRequest clientRequest2 = createClientRequest("client2", 2000L);
         MessageServiceOuterClass.PrePrepareRequest prePrepareRequest2 =
-                createPrePrepareRequest(1L, 100L, clientRequest2);
+                createPrePrepareRequest(1L, Config.getWatermarkWindow(), clientRequest2);
         handler.handle(prePrepareRequest2);
-        assertTrue(state.hasPrePrepare(1L, 100L), "PrePrepare with seq=100 should be added");
+        assertTrue(state.hasPrePrepare(1L, Config.getWatermarkWindow()), "PrePrepare with seq at high watermark should be added");
     }
 
     @Test

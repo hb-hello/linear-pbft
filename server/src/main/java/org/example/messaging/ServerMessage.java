@@ -225,6 +225,7 @@ public interface ServerMessage {
         // Add message index
         if (hasFields) sb.append(", ");
         sb.append("index=").append(getMessageIndexWithSender());
+        sb.append(", consensusIndex=").append(getMessageIndex());
 
         sb.append("}");
         return sb.toString();

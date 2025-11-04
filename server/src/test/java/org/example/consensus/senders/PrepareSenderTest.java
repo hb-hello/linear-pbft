@@ -41,7 +41,7 @@ class PrepareSenderTest {
     @BeforeEach
     void setUp() {
         // Pass a no-op callback for testing - replies aren't actually sent in unit tests
-        state = new ServerState("n1", false, stateExec, (request, reply) -> {});
+        state = new ServerState("n1", false, stateExec, (request, reply) -> {}, (s, seqNum) -> {});
         sender = new MockPrepareSender("n1", state, new CommunicationLogger(), new MessageAuthenticator("n1"));
     }
 

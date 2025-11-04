@@ -116,6 +116,15 @@ public final class BankStateMachine implements StateMachine {
     }
 
     @Override
+    public String snapshotToString() {
+        StringBuilder sb = new StringBuilder();
+        balances.keySet().stream()
+                .sorted()
+                .forEach(key -> sb.append(key).append("=").append(balances.get(key)).append(";"));
+        return sb.toString();
+    }
+
+    @Override
     public void reset() {
 //        logger.info("RESET: Clearing balances and restoring initial state");
 //        logger.info("RESET: Current balances before clear: {}", balances);

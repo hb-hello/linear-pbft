@@ -1,6 +1,6 @@
 package org.example;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import org.example.serverstate.OperationStatus;
 
 import java.util.List;
 
@@ -26,12 +26,12 @@ public class CLILogging {
 //        }
 //    }
 
-    public static String mapStatus(TransactionStatus status) {
+    public static String mapStatus(OperationStatus status) {
         return switch (status) {
             case PREPREPARED -> "PP";
             case PREPARED -> "P";
             case COMMITTED -> "C";
-            case EXECUTED -> "E";
+            case EXECUTED, CHECKPOINTED -> "E";
             default -> "X";
         };
     }

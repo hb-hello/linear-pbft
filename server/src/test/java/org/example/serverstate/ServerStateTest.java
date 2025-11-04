@@ -40,7 +40,7 @@ class ServerStateTest {
 
     private ServerState newState(String serverId) {
         // Pass a no-op callback for testing - replies aren't actually sent in unit tests
-        return new ServerState(serverId, false, stateExec, (request, reply) -> {});
+        return new ServerState(serverId, false, stateExec, (request, reply) -> {}, (s, seqNum) -> {});
     }
 
     private MessageServiceOuterClass.Operation transferOp(String from, String to, double amount) {
@@ -146,7 +146,7 @@ class ServerStateTest {
 //        assertTrue(t.getResult());
         MessageServiceOuterClass.ClientReply reply = MessageServiceOuterClass.ClientReply.newBuilder()
                 .setClientId("client1")
-                .setTimestamp(100L)
+                .setTimestamp(Config.getWatermarkWindow() + 1L)
                 .setViewNumber(1L)
                 .setServerId("n1")
                 .build();
@@ -216,12 +216,12 @@ class ServerStateTest {
 
         MessageServiceOuterClass.ClientReply reply1 = MessageServiceOuterClass.ClientReply.newBuilder()
                 .setClientId("client1")
-                .setTimestamp(100L)
+                .setTimestamp(Config.getWatermarkWindow() + 1L)
                 .setViewNumber(1L)
                 .setServerId("n1")
                 .build();
         state.rememberReply(reply1);
-        assertEquals(100L, state.lastReplyTimestamp("client1"), "Last timestamp should be 100");
+        assertEquals(Config.getWatermarkWindow() + 1L, state.lastReplyTimestamp("client1"), "Last timestamp should be 100");
 
         MessageServiceOuterClass.ClientReply reply2 = MessageServiceOuterClass.ClientReply.newBuilder()
                 .setClientId("client1")
@@ -230,7 +230,7 @@ class ServerStateTest {
                 .setServerId("n1")
                 .build();
         state.rememberReply(reply2);
-        assertEquals(100L, state.lastReplyTimestamp("client1"), "Older timestamp should not overwrite");
+        assertEquals(Config.getWatermarkWindow() + 1L, state.lastReplyTimestamp("client1"), "Older timestamp should not overwrite");
 
         MessageServiceOuterClass.ClientReply reply3 = MessageServiceOuterClass.ClientReply.newBuilder()
                 .setClientId("client1")
@@ -248,7 +248,7 @@ class ServerStateTest {
 
         // Transfer 5 from A to B
         MessageServiceOuterClass.ClientReply transferReply = state.executeRequest(
-                transferRequest("client1", 100L, "A", "B", 5.0), 1L).get();
+                transferRequest("client1", Config.getWatermarkWindow() + 1L, "A", "B", 5.0), 1L).get();
         assertNotNull(transferReply, "Transfer reply should not be null");
         MessageServiceOuterClass.OperationResult res = transferReply.getResult();
         assertEquals(MessageServiceOuterClass.OperationResult.OpCase.RESULT, res.getOpCase());
@@ -282,19 +282,13 @@ class ServerStateTest {
     }
 
     @Test
-    void testGetHighWatermark_returnsInitialValue() {
-        ServerState state = newState("n1");
-        assertEquals(100L, state.getHighWatermark(), "High watermark should initially be 100");
-    }
-
-    @Test
     void testSeqNumBetweenWatermarks_withinRange() {
         ServerState state = newState("n1");
 
-        // Test sequences within the watermark range (0, 100]
+        // Test sequences within the watermark range (0, watermarkWindow]
         assertTrue(state.seqNumBetweenWatermarks(1L), "Sequence 1 should be between watermarks");
-        assertTrue(state.seqNumBetweenWatermarks(50L), "Sequence 50 should be between watermarks");
-        assertTrue(state.seqNumBetweenWatermarks(100L), "Sequence 100 should be between watermarks (inclusive high)");
+        assertTrue(state.seqNumBetweenWatermarks(25L), "Sequence 25 should be between watermarks");
+        assertTrue(state.seqNumBetweenWatermarks(Config.getWatermarkWindow()), "Sequence at high watermark should be between watermarks (inclusive high)");
     }
 
     @Test
@@ -304,7 +298,7 @@ class ServerStateTest {
         // Test sequences outside the watermark range
         assertFalse(state.seqNumBetweenWatermarks(0L), "Sequence 0 should not be between watermarks (exclusive low)");
         assertFalse(state.seqNumBetweenWatermarks(-1L), "Negative sequence should not be between watermarks");
-        assertFalse(state.seqNumBetweenWatermarks(101L), "Sequence 101 should not be between watermarks (above high)");
+        assertFalse(state.seqNumBetweenWatermarks(Config.getWatermarkWindow() + 1L), "Sequence above high watermark should not be between watermarks");
         assertFalse(state.seqNumBetweenWatermarks(1000L), "Sequence 1000 should not be between watermarks");
     }
 
@@ -316,12 +310,12 @@ class ServerStateTest {
         // Low watermark is exclusive (0 < seq)
         assertFalse(state.seqNumBetweenWatermarks(0L), "Sequence equal to low watermark should be excluded");
 
-        // High watermark is inclusive (seq <= 100)
-        assertTrue(state.seqNumBetweenWatermarks(100L), "Sequence equal to high watermark should be included");
+        // High watermark is inclusive (seq <= watermarkWindow)
+        assertTrue(state.seqNumBetweenWatermarks(Config.getWatermarkWindow()), "Sequence equal to high watermark should be included");
 
         // Just outside boundaries
         assertTrue(state.seqNumBetweenWatermarks(1L), "Sequence 1 (low + 1) should be included");
-        assertFalse(state.seqNumBetweenWatermarks(101L), "Sequence 101 (high + 1) should be excluded");
+        assertFalse(state.seqNumBetweenWatermarks(Config.getWatermarkWindow() + 1L), "Sequence (high + 1) should be excluded");
     }
 
     // ===== isPrepared Tests =====

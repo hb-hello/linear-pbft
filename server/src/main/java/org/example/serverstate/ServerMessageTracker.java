@@ -100,7 +100,7 @@ public class ServerMessageTracker {
     public boolean checkMessageQuorum(String messageIndex, int quorumSize) {
         // Use consensusTracker to check if quorum is reached
         boolean met = consensusTracker.checkMessageQuorum(messageIndex, quorumSize);
-        logger.info("Quorum check for {}: required={}, met={}",
+        logger.info("Quorum check for {} : required={}, met={}",
                 messageIndex, quorumSize, met);
         return met;
     }

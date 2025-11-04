@@ -11,6 +11,8 @@ import org.example.MessageServiceOuterClass;
 import org.example.ServerNode;
 import org.example.crypto.MessageAuthenticator;
 
+import static org.example.CLILogging.mapStatus;
+
 //import static org.example.CLILogging.formatNewViews;
 
 
@@ -116,6 +118,17 @@ public class ServerMessageService extends MessageServiceGrpc.MessageServiceImplB
         serverNode.handleCommit(request);
     }
 
+    public void checkpoint(MessageServiceOuterClass.CheckpointMessage request, StreamObserver<Empty> responseObserver) {
+        communicationLogger.add(
+                String.format("MESSAGE: <CHECKPOINT, %d> received from server %s",
+                        request.getSequenceNumber(),
+                        request.getSignerId()
+                )
+        );
+
+        serverNode.handleCheckpoint(request);
+    }
+
 //    @Override
 //    public void newView(MessageServiceOuterClass.NewViewMessage request, StreamObserver<MessageServiceOuterClass.AcceptedMessage> responseObserver) {
 //        communicationLogger.add(
@@ -174,13 +187,13 @@ public class ServerMessageService extends MessageServiceGrpc.MessageServiceImplB
 //        responseObserver.onCompleted();
 //    }
 //
-//    @Override
-//    public void getStatus(MessageServiceOuterClass.SequenceNumber request, StreamObserver<MessageServiceOuterClass.CLIResponse> responseObserver) {
-//        String statusString = mapStatus(node.getLog().getStatus(request.getSequenceNumber()));
-//        MessageServiceOuterClass.CLIResponse response = MessageServiceOuterClass.CLIResponse.newBuilder().setCliResponse(statusString).build();
-//        responseObserver.onNext(response);
-//        responseObserver.onCompleted();
-//    }
+    @Override
+    public void getStatus(MessageServiceOuterClass.SequenceNumber request, StreamObserver<MessageServiceOuterClass.CLIResponse> responseObserver) {
+        String statusString = mapStatus(serverNode.getOperationStatus(request.getSequenceNumber())) + " for operation : " + serverNode.getOperation(request.getSequenceNumber());
+        MessageServiceOuterClass.CLIResponse response = MessageServiceOuterClass.CLIResponse.newBuilder().setCliResponse(statusString).build();
+        responseObserver.onNext(response);
+        responseObserver.onCompleted();
+    }
 //
 //    @Override
 //    public void getNewViews(Empty request, StreamObserver<MessageServiceOuterClass.CLIResponse> responseObserver) {

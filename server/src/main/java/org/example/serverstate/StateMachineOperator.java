@@ -24,12 +24,15 @@ public class StateMachineOperator {
     private final Map<Long, MessageServiceOuterClass.ClientRequest> pendingOperations = new ConcurrentHashMap<>();
     private final ExecutorService stateMachineExecutor;
     private final BiConsumer<MessageServiceOuterClass.ClientRequest, MessageServiceOuterClass.ClientReply> replySender;
+    private final BiConsumer<ServerState, Long> checkpointSender;
 
     // all methods should be called from within state's runSync
     public StateMachineOperator(ServerState state,
-                                BiConsumer<MessageServiceOuterClass.ClientRequest, MessageServiceOuterClass.ClientReply> replySender) {
+                                BiConsumer<MessageServiceOuterClass.ClientRequest, MessageServiceOuterClass.ClientReply> replySender,
+                                BiConsumer<ServerState, Long> checkpointSender) {
         this.state = state;
         this.replySender = replySender;
+        this.checkpointSender = checkpointSender;
         this.stateMachine = new BankStateMachine(new HashMap<>(Config.getClientBalances()));
         this.stateMachineExecutor = Executors.newSingleThreadExecutor(r -> {
             Thread t = new Thread(r);
@@ -38,7 +41,6 @@ public class StateMachineOperator {
             return t;
         });
     }
-
 
     public void markExecutedUpTo(long executedSeqNum) {
         pendingOperations.remove(executedSeqNum);
@@ -75,6 +77,9 @@ public class StateMachineOperator {
             logger.info("Executing operation of type: {}", operation.getOpCase());
             MessageServiceOuterClass.OperationResult result = stateMachine.execute(operation);
             markExecutedUpTo(seqNum);
+
+            // Send checkpoint if at checkpoint interval
+            checkpointSender.accept(state, seqNum);
 
             return MessageServiceOuterClass.ClientReply.newBuilder()
                     .setViewNumber(state.getViewNumber())
@@ -116,6 +121,9 @@ public class StateMachineOperator {
 
             // Send the reply to the client for the pending operation using the callback
             replySender.accept(nextRequest, reply);
+
+            // Send checkpoint if at checkpoint interval
+            checkpointSender.accept(state, nextSeqNum);
         }
         logger.info("Finished executing pending operations up to seqNum {}", lastExecutedSeqNum);
     }
@@ -128,8 +136,18 @@ public class StateMachineOperator {
         return Map.copyOf(pendingOperations).values().stream().toList();
     }
 
+    public void applyCheckpoint(MessageServiceOuterClass.CheckpointMessage stableCheckpoint) {
+        if (lastExecutedSeqNum >= stableCheckpoint.getSequenceNumber()) {
+            logger.info("Checkpoint at seqNum {} is not newer than last executed seqNum {}, skipping apply",
+                    stableCheckpoint.getSequenceNumber(), lastExecutedSeqNum);
+            return;
+        }
+
+        //TODO: catch up state from another server
+    }
+
     public Object snapshot() {
-        return stateMachine.snapshot();
+        return stateMachine.snapshotToString();
     }
 
     public void reset() {

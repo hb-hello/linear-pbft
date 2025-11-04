@@ -36,11 +36,13 @@ public final class ServerState {
     private String collectorServerId;
     private boolean isFaulty;
     private long seqNum;
-    private long lowWatermark = 0L;
-    private long highWatermark = 100L;
+    private final long checkPointInterval = Config.getCheckpointInterval();
+    private long latestStableCheckpointSeqNum = 0L;
+    private long highWatermark = latestStableCheckpointSeqNum + Config.getWatermarkWindow();
 
     // State machine: balances
     private StateMachineOperator stateMachineOperator;
+    private final OperationLog operationLog = new OperationLog();
 
     // Liveness timer
     private LivenessTimer livenessTimer;
@@ -50,7 +52,7 @@ public final class ServerState {
     private final ConcurrentHashMap<String, MessageServiceOuterClass.ClientReply> replyCache = new ConcurrentHashMap<>();
 
     // Checkpoints and message history
-    private final ConcurrentLinkedQueue<Object> checkpoints = new ConcurrentLinkedQueue<>();
+    private final ConcurrentHashMap<Long, MessageServiceOuterClass.CheckpointMessage> stableCheckpoints = new ConcurrentHashMap<>();
     private final ServerMessageTracker serverMessageTracker = new ServerMessageTracker();
 
     // Output buffer drained by networking; enqueue from actor for ordering with state updates
@@ -62,7 +64,8 @@ public final class ServerState {
 
     public ServerState(String serverId, boolean isFaulty, ExecutorService stateExec,
                        java.util.function.BiConsumer<org.example.MessageServiceOuterClass.ClientRequest,
-                                                      org.example.MessageServiceOuterClass.ClientReply> replySender) {
+                                                      org.example.MessageServiceOuterClass.ClientReply> replySender,
+                       java.util.function.BiConsumer<ServerState, Long> checkpointSender) {
         this.stateExec = stateExec;
         // Initialize header using synchronous entry to ensure serialization early
         runSync(() -> {
@@ -72,7 +75,7 @@ public final class ServerState {
             this.collectorServerId = computeCollectorServerId(viewNumber);
             this.isFaulty = isFaulty;
             this.seqNum = 0L;
-            this.stateMachineOperator = new StateMachineOperator(this, replySender);
+            this.stateMachineOperator = new StateMachineOperator(this, replySender, checkpointSender);
             this.livenessTimer = new LivenessTimer(Config.getServerTimeoutMillis(), this::onLivenessTimeout);
             return null;
         });
@@ -179,7 +182,6 @@ public final class ServerState {
         });
     }
 
-
     public boolean isPrimary() {
         return runSync(() -> primaryServerId.equals(serverId));
     }
@@ -190,6 +192,33 @@ public final class ServerState {
 
     public boolean isCollector() {
         return runSync(() -> collectorServerId.equals(serverId));
+    }
+
+    public boolean atCheckpointInterval(long sequenceNumber) {
+        return runSync(() -> sequenceNumber % checkPointInterval == 0);
+    }
+
+    public void addStableCheckpoint(MessageServiceOuterClass.CheckpointMessage checkpointMessage) {
+        runSync(() -> {
+            logger.info("Adding stable checkpoint for seq {}", checkpointMessage.getSequenceNumber());
+            stableCheckpoints.put(checkpointMessage.getSequenceNumber(), checkpointMessage);
+
+            // update watermarks
+            long seqNum = checkpointMessage.getSequenceNumber();
+            if (seqNum > latestStableCheckpointSeqNum) {
+                latestStableCheckpointSeqNum = seqNum;
+                highWatermark = latestStableCheckpointSeqNum + Config.getWatermarkWindow();
+                logger.info("Updated watermarks: low {}, high {}", latestStableCheckpointSeqNum, highWatermark);
+            }
+        });
+    }
+
+    public boolean hasStableCheckpoint(long sequenceNumber) {
+        return runSync(() -> stableCheckpoints.containsKey(sequenceNumber));
+    }
+
+    public MessageServiceOuterClass.CheckpointMessage getLatestStableCheckpoint() {
+        return runSync(() -> stableCheckpoints.get(latestStableCheckpointSeqNum));
     }
 
     public String getPrimaryServerId() {
@@ -209,11 +238,11 @@ public final class ServerState {
     }
 
     public boolean seqNumBetweenWatermarks(long sequenceNumber) {
-        return runSync(() -> sequenceNumber > lowWatermark && sequenceNumber <= highWatermark);
+        return runSync(() -> sequenceNumber > latestStableCheckpointSeqNum && sequenceNumber <= highWatermark);
     }
 
     public long getLowWatermark() {
-        return lowWatermark;
+        return latestStableCheckpointSeqNum;
     }
 
     public long getHighWatermark() {
@@ -233,15 +262,23 @@ public final class ServerState {
         runSync(() -> {
             if (!seqNumBetweenWatermarks(sequenceNumber)) {
                 logger.warn("Sequence number {} out of watermarks (low: {}, high: {})",
-                        sequenceNumber, lowWatermark, highWatermark);
+                        sequenceNumber, latestStableCheckpointSeqNum, highWatermark);
                 throw new IllegalStateException("Sequence number " + sequenceNumber +
-                        " out of watermarks (low: " + lowWatermark + ", high: " + highWatermark + ")");
+                        " out of watermarks (low: " + latestStableCheckpointSeqNum + ", high: " + highWatermark + ")");
             }
         });
     }
 
     public Header snapshotHeader() {
         return runSync(() -> new Header(viewNumber, primaryServerId, isFaulty, seqNum));
+    }
+
+    public Map<String, Long> getClientReplyTimestamps() {
+        return runSync(() -> Map.copyOf(replyTimestamps));
+    }
+
+    public Map<String, MessageServiceOuterClass.ClientReply> getClientReplyCache() {
+        return runSync(() -> Map.copyOf(replyCache));
     }
 
     // State-machine operations — example transfer and read-only balance
@@ -307,7 +344,36 @@ public final class ServerState {
     public boolean appendServerMessage(Message msg) {
         ServerMessage serverMsg = ServerMessage.wrap(msg);
         logger.info("Appending server message: {}", serverMsg.toDetailedString());
-        return runSync(() -> serverMessageTracker.append(serverMsg));
+        return runSync(() -> {
+            switch(serverMsg.getMessageType()) {
+                case ServerMessage.PRE_PREPARE:
+                    operationLog.addOperation(serverMsg.getSequenceNumber().orElse(-1L), null, OperationStatus.PREPREPARED);
+                break;
+                case ServerMessage.PREPARE:
+                    MessageServiceOuterClass.ClientRequest clientRequest = findClientRequest(serverMsg.getDigest().orElse(null));
+                    operationLog.addOperationOrUpdateStatus(serverMsg.getSequenceNumber().orElse(-1L), clientRequest, OperationStatus.PREPARED);
+                break;
+                case ServerMessage.COMMIT:
+                    MessageServiceOuterClass.ClientRequest clientRequestCommit = findClientRequest(serverMsg.getDigest().orElse(null));
+                    operationLog.addOperationOrUpdateStatus(serverMsg.getSequenceNumber().orElse(-1L), clientRequestCommit, OperationStatus.COMMITTED);
+                break;
+                case ServerMessage.CHECKPOINT:
+                    operationLog.addOperationOrUpdateStatus(serverMsg.getSequenceNumber().orElse(-1L), null, OperationStatus.CHECKPOINTED);
+                break;
+                default:
+                    operationLog.addOperationOrUpdateStatus(serverMsg.getSequenceNumber().orElse(-1L), null, OperationStatus.NONE);
+                break;
+            }
+            return serverMessageTracker.append(serverMsg);
+        });
+    }
+
+    public OperationStatus getOperationStatus(long sequenceNumber) {
+        return runSync(() -> operationLog.getOperationStatus(sequenceNumber));
+    }
+
+    public OperationLogEntry getOperation(long sequenceNumber) {
+        return runSync(() -> operationLog.getOperation(sequenceNumber));
     }
 
     public boolean appendClientRequest(Message msg) {
@@ -315,6 +381,16 @@ public final class ServerState {
             ByteString digest = ByteString.copyFrom(MessageUtil.generateDigest(msg));
             livenessTimer.startIfNotRunning();
             return serverMessageTracker.appendWithoutConsensus(ServerMessage.wrap(msg), digest.toStringUtf8());
+        });
+    }
+
+    public boolean appendClientRequest(Message msg, long seqNum) {
+        return runSync(() -> {
+            if ((msg instanceof MessageServiceOuterClass.ClientRequest clientRequest)) {
+                logger.warn("Message is not a ClientRequest, cannot append to operation log");
+                operationLog.setRequest(seqNum, clientRequest);
+            }
+            return appendClientRequest(msg);
         });
     }
 
@@ -339,7 +415,12 @@ public final class ServerState {
 
     public MessageServiceOuterClass.ClientRequest findClientRequest(ByteString digest) {
         return runSync(() -> {
+            if (digest == null) return null;
             ServerMessage message = serverMessageTracker.findByIndex(digest.toStringUtf8());
+            if (message == null) {
+                logger.debug("No message found for digest: {}", digest);
+                return null;
+            }
             if (!(message.getMessage() instanceof MessageServiceOuterClass.ClientRequest clientRequest)) {
                 logger.warn("Message for digest is not a ClientRequest: {}", digest);
                 return null;
@@ -520,7 +601,7 @@ public final class ServerState {
             stateMachineOperator.reset();
             replyTimestamps.clear();
             replyCache.clear();
-            checkpoints.clear();
+            stableCheckpoints.clear();
             serverMessageTracker.clear();
             outputBuffer.clear();
             return null;

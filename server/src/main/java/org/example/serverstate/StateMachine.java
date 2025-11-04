@@ -29,6 +29,12 @@ public interface StateMachine {
     Object snapshot();
 
     /**
+     * Returns a deterministic string representation of the state machine snapshot.
+     * For map-based state, keys should be sorted to ensure consistency.
+     */
+    String snapshotToString();
+
+    /**
      * Clear all application state (used between test sets and on ServerState.reset()).
      */
     void reset();
