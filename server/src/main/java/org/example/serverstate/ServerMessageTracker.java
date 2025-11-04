@@ -62,6 +62,23 @@ public class ServerMessageTracker {
         return true;
     }
 
+    // for client requests
+    public boolean appendWithoutConsensus(ServerMessage message, String withIndex) {
+        // Add to list and index
+
+        if (index.containsKey(withIndex)) {
+            logger.info("Duplicate message detected: index={}. Skipping addition.", withIndex);
+            return false;
+        }
+
+        allMessages.add(message);
+        index.put(withIndex, message);
+
+        logger.info("Appended and indexed message without consensus: {}, messageIndex={}",
+                message.getMessageIndexWithSender(), withIndex);
+        return true;
+    }
+
     /**
      * Check if a quorum of messages with the same index exists.
      * Uses the ServerConsensusMessageTracker to check quorum.

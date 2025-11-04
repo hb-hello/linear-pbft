@@ -85,7 +85,7 @@ public class PrePrepareHandler {
             return;
         }
 
-        state.appendServerMessage(prePrepareRequest.getRequest());
+        state.appendClientRequest(prePrepareRequest.getRequest());
 
         prepareSender.sendPrepare(state.getViewNumber(), prePrepareMessage.getSequenceNumber(),
                 prePrepareMessage.getDigest().toByteArray());

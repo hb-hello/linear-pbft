@@ -14,6 +14,8 @@ import org.example.statemachine.TransferOp;
 import java.time.Duration;
 import java.util.concurrent.TimeoutException;
 
+import static org.example.messaging.MessageUtil.requestIdFor;
+
 public class ClientNode extends Node {
     private static final Logger logger = LogManager.getLogger(ClientNode.class);
 

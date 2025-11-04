@@ -3,6 +3,7 @@ package org.example.consensus.handlers;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.example.MessageServiceOuterClass;
+import org.example.consensus.senders.ClientReplySender;
 import org.example.consensus.senders.ClientRequestSender;
 import org.example.consensus.senders.PrePrepareSender;
 import org.example.serverstate.ServerState;
@@ -12,12 +13,14 @@ public class ClientRequestHandler {
     private static final Logger logger = LogManager.getLogger(ClientRequestHandler.class);
 
     private final ServerState state;
-    private final ClientRequestSender sender;
+    private final ClientRequestSender clientRequestSender;
+    private final ClientReplySender clientReplySender;
     private final PrePrepareSender prePrepareSender;
 
-    public ClientRequestHandler(ServerState state, ClientRequestSender sender, PrePrepareSender prePrepareSender) {
+    public ClientRequestHandler(ServerState state, ClientRequestSender clientRequestSender, ClientReplySender clientReplySender, PrePrepareSender prePrepareSender) {
         this.state = state;
-        this.sender = sender;
+        this.clientRequestSender = clientRequestSender;
+        this.clientReplySender = clientReplySender;
         this.prePrepareSender = prePrepareSender;
     }
 
@@ -33,21 +36,20 @@ public class ClientRequestHandler {
                 clientId, timestamp);
         if (timestamp <= state.lastReplyTimestamp(clientId)) {
             logger.info("Ignoring stale ClientRequest from client {}: timestamp {}", clientId, timestamp);
-            // TODO: resend cached reply
+            clientReplySender.resendCachedReply(request);
             return;
         }
 
-        if (!state.appendServerMessage(request)) {
+        if (!state.appendClientRequest(request)) {
             logger.info("Duplicate ClientRequest from client {}: timestamp {}, ignoring",
                     clientId, timestamp);
             return;
         }
-        // TODO: refresh liveness timer
 
         if (!state.isPrimary()) {
             String primaryServerId = state.getPrimaryServerId();
             logger.info("Forwarding ClientRequest from client {} to primary server {}", clientId, primaryServerId);
-            sender.forwardClientRequest(primaryServerId, request);
+            clientRequestSender.forwardClientRequest(primaryServerId, request);
             return;
         }
 

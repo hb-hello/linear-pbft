@@ -37,12 +37,12 @@ public class ServerNode extends Node {
         this.state = new ServerState(serverId, false, executorManager.getStateExecutor());
 
         this.clientRequestSender = new ClientRequestSender(serverId, commLogger, auth);
-        this.clientReplySender = new ClientReplySender(serverId, commLogger, auth);
+        this.clientReplySender = new ClientReplySender(serverId, state, commLogger, auth);
         this.prePrepareSender = new PrePrepareSender(serverId, state, commLogger, auth);
         this.prepareSender = new PrepareSender(serverId, state, commLogger, auth);
-        this.commitSender = new CommitSender(serverId, MAJORITY_COUNT, state, commLogger, auth);
+        this.commitSender = new CommitSender(serverId, MAJORITY_COUNT, clientReplySender, state, commLogger, auth);
 
-        this.clientRequestHandler = new ClientRequestHandler(state, clientRequestSender, prePrepareSender);
+        this.clientRequestHandler = new ClientRequestHandler(state, clientRequestSender, clientReplySender, prePrepareSender);
         this.prePrepareHandler = new PrePrepareHandler(state, auth, prepareSender);
         this.prepareHandler = new PrepareHandler(state, MAJORITY_COUNT, prepareSender, commitSender);
         this.commitHandler = new CommitHandler(state, MAJORITY_COUNT, commitSender, clientReplySender);
@@ -67,24 +67,17 @@ public class ServerNode extends Node {
 
         executorManager.submitMessageProcessing(() -> clientRequestHandler.handle(request));
 
-        String clientId = request.getClientId();
-        long timestamp = request.getTimestamp();
-        MessageServiceOuterClass.Operation operation = request.getOperation();
-
-        MessageServiceOuterClass.OperationResult result = state.executeOperation(operation);
-        logger.info("Executed operation for ClientRequest from client {}: timestamp {}, result {}",
-                clientId, timestamp, result);
-
-        executorManager.submitMessageProcessing(() -> {
-            MessageServiceOuterClass.ClientReply reply = MessageServiceOuterClass.ClientReply.newBuilder()
-                    .setViewNumber(1L)
-                    .setTimestamp(timestamp)
-                    .setClientId(clientId)
-                    .setServerId(nodeId)
-                    .setResult(result)
-                    .build();
-            clientReplySender.sendClientReply(clientId, reply);
-        });
+//        String clientId = request.getClientId();
+//        long timestamp = request.getTimestamp();
+//        MessageServiceOuterClass.Operation operation = request.getOperation();
+//
+//        MessageServiceOuterClass.OperationResult result = state.executeOperation(operation);
+//        logger.info("Executed operation for ClientRequest from client {}: timestamp {}, result {}",
+//                clientId, timestamp, result);
+//
+//        executorManager.submitMessageProcessing(() -> {
+//            clientReplySender.sendClientReply(request, result);
+//        });
     }
 
     public void handlePrePrepare(MessageServiceOuterClass.PrePrepareRequest prePrepareRequest) {

@@ -1,11 +1,13 @@
 package org.example.consensus.handlers;
 
+import com.google.protobuf.ByteString;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.example.MessageServiceOuterClass;
 import org.example.consensus.senders.ClientReplySender;
 import org.example.consensus.senders.CommitSender;
 import org.example.consensus.senders.PrepareSender;
+import org.example.messaging.ServerMessage;
 import org.example.serverstate.ServerState;
 
 import java.util.Objects;
@@ -45,6 +47,7 @@ public class CommitHandler {
 
         long viewNumber = commitMessage.getViewNumber();
         long sequenceNumber = commitMessage.getSequenceNumber();
+        ByteString digest = commitMessage.getDigest();
 
         if (!isValid(commitMessage)) {
             logger.info("Invalid Commit message from {}, ignoring Commit for view {} seq {}",
@@ -76,6 +79,17 @@ public class CommitHandler {
 
         if (!state.isCollector()) logger.info("Committed request for view {} seq {}, now executing", viewNumber, sequenceNumber);
 
-        // TODO: find the client request corresponding to this digest and execute it, then send a reply to client
+        // Find the corresponding client request
+        MessageServiceOuterClass.ClientRequest clientRequest = state.findClientRequest(digest);
+        if (clientRequest == null) {
+            logger.warn("Client Request not found for digest: {}", digest);
+            return;
+        }
+
+        // Execute the operation
+        MessageServiceOuterClass.OperationResult result = state.executeOperation(clientRequest.getOperation());
+
+        // Send the reply to the client
+        clientReplySender.sendClientReply(clientRequest, result);
     }
 }

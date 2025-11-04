@@ -6,18 +6,48 @@ import org.example.MessageServiceOuterClass;
 import org.example.crypto.MessageAuthenticator;
 import org.example.messaging.CommunicationLogger;
 import org.example.messaging.MessageSender;
+import org.example.serverstate.ServerState;
 
 public class ClientReplySender extends MessageSender {
     private static final Logger logger = LogManager.getLogger(ClientReplySender.class);
 
-    public ClientReplySender(String serverId,
+    private final ServerState state;
+
+    public ClientReplySender(String serverId, ServerState state,
                              CommunicationLogger commLogger, MessageAuthenticator auth) {
         super(serverId, commLogger, auth);
+        this.state = state;
     }
 
-    public void sendClientReply(String clientId, MessageServiceOuterClass.ClientReply reply) {
-        logger.info("Sending ClientReply to client {}: {}", clientId, reply.getResult());
+    public void sendClientReply(MessageServiceOuterClass.ClientRequest request, MessageServiceOuterClass.OperationResult result) {
+        String clientId = request.getClientId();
+
+        MessageServiceOuterClass.ClientReply reply = MessageServiceOuterClass.ClientReply.newBuilder()
+                .setViewNumber(state.getViewNumber())
+                .setTimestamp(request.getTimestamp())
+                .setClientId(clientId)
+                .setServerId(nodeId)
+                .setResult(result)
+                .build();
+
+        logger.info("Sending ClientReply to client {}: {} {}", clientId, result.getOpCase(), result.getResult());
         signAndSend(clientId, reply, (stub, signed) -> stub.reply((MessageServiceOuterClass.ClientReply) signed));
+
+        state.rememberReply(clientId, request.getTimestamp(), reply);
+    }
+
+    public void resendCachedReply(MessageServiceOuterClass.ClientRequest request) {
+        String clientId = request.getClientId();
+        long timestamp = request.getTimestamp();
+        MessageServiceOuterClass.ClientReply cachedReply = state.cachedReply(clientId, timestamp);
+
+        if (cachedReply != null) {
+            logger.info("Resending cached ClientReply to client {}: {} {}", clientId,
+                    cachedReply.getResult().getOpCase(), cachedReply.getResult().getResult());
+            signAndSend(clientId, cachedReply, (stub, signed) -> stub.reply((MessageServiceOuterClass.ClientReply) signed));
+        } else {
+            logger.warn("No cached ClientReply found for client {} and timestamp {}, cannot resend", clientId, timestamp);
+        }
     }
 
 }

@@ -28,4 +28,12 @@ public class MessageUtil {
         }
         return true;
     }
+
+    /**
+     * Compose a stable request id from client id and timestamp.
+     * Kept generic so both client and server code can rely on identical formatting.
+     */
+    public static String requestIdFor(String clientId, long timestamp) {
+        return clientId + ":" + timestamp;
+    }
 }

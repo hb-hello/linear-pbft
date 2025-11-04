@@ -41,14 +41,6 @@ public class Node {
     }
 
     /**
-     * Compose a stable request id from client id and timestamp.
-     * Kept generic so both client and server code can rely on identical formatting.
-     */
-    protected static String requestIdFor(String clientId, long timestamp) {
-        return clientId + ":" + timestamp;
-    }
-
-    /**
      * Compute primary server id for a given view using a stable ordering of configured servers.
      * Uses floorMod to handle negative views gracefully.
      */

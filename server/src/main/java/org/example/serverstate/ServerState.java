@@ -5,7 +5,9 @@ import com.google.protobuf.Message;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.example.MessageServiceOuterClass;
+import org.example.Node;
 import org.example.config.Config;
+import org.example.messaging.MessageUtil;
 import org.example.messaging.ServerMessage;
 import org.example.statemachine.BankStateMachine;
 
@@ -36,16 +38,15 @@ public final class ServerState {
     private String collectorServerId;
     private boolean isFaulty;
     private long seqNum;
-    private long lastExecutedSeqNum;
     private long lowWatermark = 0L;
     private long highWatermark = 100L;
 
     // State machine: balances
-    private StateMachine stateMachine;
+    private StateMachineOperator stateMachineOperator;
 
     // Reply tracking and caches
     private final ConcurrentHashMap<String, Long> replyTimestamps = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, Object> replyCache = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, MessageServiceOuterClass.ClientReply> replyCache = new ConcurrentHashMap<>();
 
     // Checkpoints and message history
     private final ConcurrentLinkedQueue<Object> checkpoints = new ConcurrentLinkedQueue<>();
@@ -55,7 +56,7 @@ public final class ServerState {
     private final BlockingQueue<Object> outputBuffer = new LinkedBlockingQueue<>();
 
     // DTO for safe read snapshots
-    public record Header(long view, String primary, boolean faulty, long seq, long lastExec) {
+    public record Header(long view, String primary, boolean faulty, long seq) {
     }
 
     public ServerState(String serverId, boolean isFaulty, ExecutorService stateExec) {
@@ -68,8 +69,7 @@ public final class ServerState {
             this.collectorServerId = computeCollectorServerId(viewNumber);
             this.isFaulty = isFaulty;
             this.seqNum = 0L;
-            this.lastExecutedSeqNum = 0L;
-            this.stateMachine = new BankStateMachine(new HashMap<>(Config.getClientBalances()));
+            this.stateMachineOperator = new StateMachineOperator(this);
             return null;
         });
     }
@@ -158,11 +158,6 @@ public final class ServerState {
         });
     }
 
-    public void markExecutedUpTo(long executedSeqNum) {
-        runSync(() -> {
-            lastExecutedSeqNum = Math.max(lastExecutedSeqNum, executedSeqNum);
-        });
-    }
 
     public boolean isPrimary() {
         return runSync(() -> primaryServerId.equals(serverId));
@@ -225,7 +220,7 @@ public final class ServerState {
     }
 
     public Header snapshotHeader() {
-        return runSync(() -> new Header(viewNumber, primaryServerId, isFaulty, seqNum, lastExecutedSeqNum));
+        return runSync(() -> new Header(viewNumber, primaryServerId, isFaulty, seqNum));
     }
 
     // State-machine operations — example transfer and read-only balance
@@ -233,23 +228,24 @@ public final class ServerState {
     // Generic execute that delegates to the pluggable state machine
     public MessageServiceOuterClass.OperationResult executeOperation(MessageServiceOuterClass.Operation operation) {
         logger.info("Executing operation of type: {}", operation.getOpCase());
-        return runSync(() -> stateMachine.execute(operation));
+        return runSync(() -> stateMachineOperator.executeOperation(operation));
     }
 
     public Object snapshotStateMachine() {
-        return runSync(() -> stateMachine.snapshot());
+        return runSync(() -> stateMachineOperator.snapshot());
     }
 
     // Reply tracking — store the highest timestamp per client and a reply object
 
-    public void rememberReply(String clientId, long timestamp, Object reply) {
+    public void rememberReply(String clientId, long timestamp, MessageServiceOuterClass.ClientReply reply) {
         runSync(() -> {
             Long prev = replyTimestamps.get(clientId);
             if (prev == null || timestamp >= prev) {
                 replyTimestamps.put(clientId, timestamp);
-                replyCache.put(clientId, reply);
+                String requestId = MessageUtil.requestIdFor(clientId, timestamp);
+                logger.info("Remembering reply for clientId: {} timestamp: {} requestId: {}", clientId, timestamp, requestId);
+                replyCache.put(requestId, reply);
             }
-            return null;
         });
     }
 
@@ -261,8 +257,9 @@ public final class ServerState {
         });
     }
 
-    public Object cachedReply(String clientId) {
-        return runSync(() -> replyCache.get(clientId));
+    public MessageServiceOuterClass.ClientReply cachedReply(String clientId, long timestamp) {
+        logger.info("Fetching cached reply for clientId: {} timestamp: {}", clientId, timestamp);
+        return runSync(() -> replyCache.get(MessageUtil.requestIdFor(clientId, timestamp)));
     }
 
     // Logs and buffers
@@ -271,6 +268,14 @@ public final class ServerState {
         ServerMessage serverMsg = ServerMessage.wrap(msg);
         logger.info("Appending server message: {}", serverMsg.toDetailedString());
         return runSync(() -> serverMessageTracker.append(serverMsg));
+    }
+
+    public boolean appendClientRequest(Message msg) {
+        return runSync(() -> {
+            ByteString digest = ByteString.copyFrom(MessageUtil.generateDigest(msg));
+            return serverMessageTracker.appendWithoutConsensus(ServerMessage.wrap(msg), digest.toStringUtf8());
+            // TODO: refresh liveness timer if not running
+        });
     }
 
     // every time a pre-prepare is received, check quorum for matching prepares
@@ -290,6 +295,17 @@ public final class ServerState {
 
     public ServerMessageTracker getServerMessageTracker() {
         return serverMessageTracker;
+    }
+
+    public MessageServiceOuterClass.ClientRequest findClientRequest(ByteString digest) {
+        return runSync(() -> {
+            ServerMessage message = serverMessageTracker.findByIndex(digest.toStringUtf8());
+            if (!(message.getMessage() instanceof MessageServiceOuterClass.ClientRequest clientRequest)) {
+                logger.warn("Message for digest is not a ClientRequest: {}", digest);
+                return null;
+            }
+            return clientRequest;
+        });
     }
 
     public ServerMessage findPrePrepare(long viewNumber, long sequenceNumber) {
@@ -459,8 +475,7 @@ public final class ServerState {
             collectorServerId = computeCollectorServerId(viewNumber);
             isFaulty = false;
             seqNum = 0L;
-            lastExecutedSeqNum = 0L;
-            stateMachine.reset();
+            stateMachineOperator.reset();
             replyTimestamps.clear();
             replyCache.clear();
             checkpoints.clear();

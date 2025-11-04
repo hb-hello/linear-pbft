@@ -17,12 +17,14 @@ public class CommitSender extends MessageSender {
 
     private final ServerState state;
     private final int quorumSize;
+    private final ClientReplySender clientReplySender;
 
-    public CommitSender(String serverId, int quorumSize, ServerState state,
+    public CommitSender(String serverId, int quorumSize, ClientReplySender clientReplySender, ServerState state,
                         CommunicationLogger commLogger, MessageAuthenticator auth) {
         super(serverId, commLogger, auth);
         this.state = state;
         this.quorumSize = quorumSize;
+        this.clientReplySender = clientReplySender;
     }
 
     public void sendCommit(long viewNumber, long sequenceNumber, byte[] digest) {
@@ -90,5 +92,18 @@ public class CommitSender extends MessageSender {
         logger.info("Broadcasted Aggregated Commit for view {} seq {}", viewNumber, sequenceNumber);
 
         logger.info("Committed request for view {} seq {}, now executing", viewNumber, sequenceNumber);
+
+        // Find the corresponding client request
+        MessageServiceOuterClass.ClientRequest clientRequest = state.findClientRequest(digest);
+        if (clientRequest == null) {
+            logger.warn("Client Request not found for digest: {}", digest);
+            return;
+        }
+
+        // Execute the operation
+        MessageServiceOuterClass.OperationResult result = state.executeOperation(clientRequest.getOperation());
+
+        // Send the reply to the client
+        clientReplySender.sendClientReply(clientRequest, result);
     }
 }
