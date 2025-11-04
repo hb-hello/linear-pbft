@@ -242,12 +242,12 @@ class ServerStateTest {
     }
 
     @Test
-    void testExecuteRequest_transferAndBalance() {
+    void testExecuteRequest_transferAndBalance() throws Exception {
         ServerState state = newState("n1");
 
         // Transfer 5 from A to B
         MessageServiceOuterClass.ClientReply transferReply = state.executeRequest(
-                transferRequest("client1", 100L, "A", "B", 5.0), 1L);
+                transferRequest("client1", 100L, "A", "B", 5.0), 1L).get();
         assertNotNull(transferReply, "Transfer reply should not be null");
         MessageServiceOuterClass.OperationResult res = transferReply.getResult();
         assertEquals(MessageServiceOuterClass.OperationResult.OpCase.RESULT, res.getOpCase());
@@ -260,14 +260,14 @@ class ServerStateTest {
 
         // Check balances via balance requests
         MessageServiceOuterClass.ClientReply balanceReplyB = state.executeRequest(
-                balanceRequest("client1", 101L, "B"), 2L);
+                balanceRequest("client1", 101L, "B"), 2L).get();
         assertNotNull(balanceReplyB, "Balance reply B should not be null");
         MessageServiceOuterClass.OperationResult balB = balanceReplyB.getResult();
         assertEquals(MessageServiceOuterClass.OperationResult.OpCase.BALANCE, balB.getOpCase());
         assertEquals(b0 + 5.0, balB.getBalance(), 1e-9);
 
         MessageServiceOuterClass.ClientReply balanceReplyA = state.executeRequest(
-                balanceRequest("client1", 102L, "A"), 3L);
+                balanceRequest("client1", 102L, "A"), 3L).get();
         assertNotNull(balanceReplyA, "Balance reply A should not be null");
         MessageServiceOuterClass.OperationResult balA = balanceReplyA.getResult();
         assertEquals(MessageServiceOuterClass.OperationResult.OpCase.BALANCE, balA.getOpCase());

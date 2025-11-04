@@ -8,6 +8,9 @@ import org.example.statemachine.BankStateMachine;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class StateMachineOperator {
     private static final Logger logger = LogManager.getLogger(StateMachineOperator.class);
@@ -16,11 +19,18 @@ public class StateMachineOperator {
     private final StateMachine stateMachine;
     private long lastExecutedSeqNum = 0L;
     private final Map<Long, MessageServiceOuterClass.ClientRequest> pendingOperations = new HashMap<>();
+    private final ExecutorService stateMachineExecutor;
 
     // all methods should be called from within state's runSync
     public StateMachineOperator(ServerState state) {
         this.state = state;
         this.stateMachine = new BankStateMachine(new HashMap<>(Config.getClientBalances()));
+        this.stateMachineExecutor = Executors.newSingleThreadExecutor(r -> {
+            Thread t = new Thread(r);
+            t.setName("state-machine-executor-" + state.getServerId());
+            t.setDaemon(true);
+            return t;
+        });
     }
 
     public void markExecutedUpTo(long executedSeqNum) {
@@ -32,37 +42,41 @@ public class StateMachineOperator {
     // State-machine operations — example transfer and read-only balance
 
     // Generic execute that delegates to the pluggable state machine
-    public MessageServiceOuterClass.ClientReply executeOperation(MessageServiceOuterClass.ClientRequest request, long seqNum) {
+    public CompletableFuture<MessageServiceOuterClass.ClientReply> executeOperation(MessageServiceOuterClass.ClientRequest request, long seqNum) {
         if(!pendingOperations.containsKey(seqNum)) pendingOperations.put(seqNum, request);
 
         // do not repeat execution
         if (seqNum <= lastExecutedSeqNum) {
             logger.warn("Operation with seqNum {} has already been executed up to {}", seqNum, lastExecutedSeqNum);
-            return null;
+            return CompletableFuture.completedFuture(null);
         }
 
         // do not execute out of order
         if (seqNum > lastExecutedSeqNum + 1) {
             logger.info("Operation with seqNum {} is pending execution. Last executed seqNum is {}", seqNum, lastExecutedSeqNum);
-            return null;
+            return CompletableFuture.completedFuture(null);
         }
 
-        MessageServiceOuterClass.Operation operation = request.getOperation();
-        logger.info("Executing operation of type: {}", operation.getOpCase());
-        MessageServiceOuterClass.OperationResult result = stateMachine.execute(operation);
-        markExecutedUpTo(seqNum);
+        // Execute operation in the dedicated state machine executor
+        return CompletableFuture.supplyAsync(() -> {
+            MessageServiceOuterClass.Operation operation = request.getOperation();
+            logger.info("Executing operation of type: {}", operation.getOpCase());
+            MessageServiceOuterClass.OperationResult result = stateMachine.execute(operation);
+            markExecutedUpTo(seqNum);
 
-        return MessageServiceOuterClass.ClientReply.newBuilder()
-                .setViewNumber(state.getViewNumber())
-                .setTimestamp(request.getTimestamp())
-                .setClientId(request.getClientId())
-                .setServerId(state.getServerId())
-                .setResult(result)
-                .build();
+            return MessageServiceOuterClass.ClientReply.newBuilder()
+                    .setViewNumber(state.getViewNumber())
+                    .setTimestamp(request.getTimestamp())
+                    .setClientId(request.getClientId())
+                    .setServerId(state.getServerId())
+                    .setResult(result)
+                    .build();
+        }, stateMachineExecutor);
     }
 
     private void executePendingOperations() {
         // Process pending operations in order starting from lastExecutedSeqNum + 1
+        // This runs synchronously in the current thread (should be the state machine executor thread)
         while (true) {
             long nextSeqNum = lastExecutedSeqNum + 1;
             MessageServiceOuterClass.ClientRequest nextRequest = pendingOperations.get(nextSeqNum);
@@ -92,6 +106,10 @@ public class StateMachineOperator {
         logger.info("Finished executing pending operations up to seqNum {}", lastExecutedSeqNum);
     }
 
+    public boolean areOperationsPending() {
+        return !pendingOperations.isEmpty();
+    }
+
     public Object snapshot() {
         return stateMachine.snapshot();
     }
@@ -100,6 +118,10 @@ public class StateMachineOperator {
         lastExecutedSeqNum = 0L;
         pendingOperations.clear();
         stateMachine.reset();
+    }
+
+    public void shutdown() {
+        stateMachineExecutor.shutdown();
     }
 
 }

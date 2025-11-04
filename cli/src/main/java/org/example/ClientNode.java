@@ -25,6 +25,8 @@ public class ClientNode extends Node {
     private final ClientMessageReceiver receiver;
     private final org.example.consensus.ConsensusMessageTracker<String, MessageServiceOuterClass.OperationResult> messageTracker;
 
+    private static final int MAJORITY_REQUIRED = 3;
+
     public ClientNode(String nodeId) {
         super(nodeId);
         this.sender = new ClientMessageSender(nodeId, commLogger, auth);
@@ -110,8 +112,8 @@ public class ClientNode extends Node {
 
         // Await consensus
         try {
-            Message consensus = messageTracker.awaitConsensus(requestId, Duration.ofMillis(getClientRequestTimeoutMillis()), majorityCount());
-            handleOperationsResult((MessageServiceOuterClass.ClientReply) consensus);
+            Message consensus = messageTracker.awaitConsensus(requestId, Duration.ofMillis(getClientRequestTimeoutMillis()), MAJORITY_REQUIRED);
+            handleOperationResult((MessageServiceOuterClass.ClientReply) consensus);
             return true;
         } catch (TimeoutException te) {
             logger.warn("Timed out waiting for consensus for id {} after {} ms", requestId, getClientRequestTimeoutMillis());
@@ -150,9 +152,14 @@ public class ClientNode extends Node {
         }
     }
 
-    private void handleOperationsResult(MessageServiceOuterClass.ClientReply reply) {
+    private void handleOperationResult(MessageServiceOuterClass.ClientReply reply) {
         MessageServiceOuterClass.OperationResult result = reply.getResult();
         String resultStr;
+
+        // Calculate time taken for the reply
+        long requestTimestamp = reply.getTimestamp();
+        long currentTime = System.currentTimeMillis();
+        long timeTaken = currentTime - requestTimestamp;
 
         // Handle the OperationResult oneof
         switch (result.getOpCase()) {
@@ -170,9 +177,9 @@ public class ClientNode extends Node {
                 break;
         }
 
-        logger.info("Consensus reached for id {}: result={}, from={}",
+        logger.info("Consensus reached for id {}: result={}, from={}, timeTaken={}ms",
                 requestIdFor(reply.getClientId(), reply.getTimestamp()),
-                resultStr, reply.getServerId());
+                resultStr, reply.getServerId(), timeTaken);
         updatePrimary(reply.getViewNumber());
     }
 

@@ -100,10 +100,17 @@ public class CommitSender extends MessageSender {
             return;
         }
 
-        // Execute the operation
-        MessageServiceOuterClass.ClientReply reply = state.executeRequest(clientRequest, sequenceNumber);
-
-        // Send the reply to the client
-        clientReplySender.sendClientReply(clientRequest, reply);
+        // Execute the operation (returns a future)
+        state.executeRequest(clientRequest, sequenceNumber)
+            .thenAccept(reply -> {
+                // Send the reply to the client when execution completes
+                if (reply != null) {
+                    clientReplySender.sendClientReply(clientRequest, reply);
+                }
+            })
+            .exceptionally(throwable -> {
+                logger.error("Error executing request for view {} seq {}", viewNumber, sequenceNumber, throwable);
+                return null;
+            });
     }
 }

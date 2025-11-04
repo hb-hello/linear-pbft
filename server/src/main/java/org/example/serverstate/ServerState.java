@@ -241,9 +241,13 @@ public final class ServerState {
     // State-machine operations — example transfer and read-only balance
 
     // Generic execute that delegates to the pluggable state machine
-    public MessageServiceOuterClass.ClientReply executeRequest(MessageServiceOuterClass.ClientRequest request, long seqNum) {
+    public CompletableFuture<MessageServiceOuterClass.ClientReply> executeRequest(MessageServiceOuterClass.ClientRequest request, long seqNum) {
         logger.info("Executing operation of type: {}", request.getOperation().getOpCase());
-        return runSync(() -> stateMachineOperator.executeOperation(request, seqNum));
+        return runAsync(() -> {
+            if(stateMachineOperator.areOperationsPending()) livenessTimer.restart();
+            else livenessTimer.stop();
+            return null;
+        }).thenCompose(v -> stateMachineOperator.executeOperation(request, seqNum));
     }
 
     public Object snapshotStateMachine() {
@@ -292,8 +296,8 @@ public final class ServerState {
     public boolean appendClientRequest(Message msg) {
         return runSync(() -> {
             ByteString digest = ByteString.copyFrom(MessageUtil.generateDigest(msg));
+            livenessTimer.startIfNotRunning();
             return serverMessageTracker.appendWithoutConsensus(ServerMessage.wrap(msg), digest.toStringUtf8());
-            // TODO: refresh liveness timer if not running
         });
     }
 
