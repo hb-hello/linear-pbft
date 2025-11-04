@@ -73,8 +73,14 @@ public class CommitHandler {
             return;
         }
 
-        if (state.isCollector() && !commitMessage.getIsAggregated()) commitSender.broadcastAggregatedCommit(viewNumber, sequenceNumber);
+        // If this node is the collector and receives a non-aggregated commit, broadcast aggregated commit
+        // The broadcastAggregatedCommit will handle execution, so we return early to avoid duplicate execution
+        if (state.isCollector() && !commitMessage.getIsAggregated()) {
+            commitSender.broadcastAggregatedCommit(viewNumber, sequenceNumber);
+            return; // Collector executes in broadcastAggregatedCommit, don't execute again here
+        }
 
+        // Non-collectors execute here when they receive the aggregated commit
         if (!state.isCollector()) logger.info("Committed request for view {} seq {}, now executing", viewNumber, sequenceNumber);
 
         // Find the corresponding client request

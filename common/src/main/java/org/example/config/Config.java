@@ -32,6 +32,8 @@ public class Config {
     private static long clientTimeoutMillis;
     private static long serverTimeoutMillis;
     private static int maxRetries;
+    private static int checkpointInterval;
+    private static int watermarkWindow;
     private static boolean initialized = false;
 
     // Private constructor to prevent instantiation
@@ -105,6 +107,16 @@ public class Config {
         maxRetries = Integer.parseInt(props.getProperty(
                 "max.retries",
                 "1"
+        ));
+
+        checkpointInterval = Integer.parseInt(props.getProperty(
+                "checkpoint.interval",
+                "10"
+        ));
+
+        watermarkWindow = Integer.parseInt(props.getProperty(
+                "watermark.window",
+                "50"
         ));
 
         logger.info("Loading server details from: {}", serverDetailsPath);
@@ -332,6 +344,16 @@ public class Config {
     public static long getServerTimeoutMillis() {
         ensureInitialized();
         return serverTimeoutMillis;
+    }
+
+    public static int getCheckpointInterval() {
+        ensureInitialized();
+        return checkpointInterval;
+    }
+
+    public static int getWatermarkWindow() {
+        ensureInitialized();
+        return watermarkWindow;
     }
 
     /**

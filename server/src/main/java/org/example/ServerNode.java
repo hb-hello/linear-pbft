@@ -34,13 +34,20 @@ public class ServerNode extends Node {
     public ServerNode(String serverId) {
         super(serverId);
         this.receiver = new ServerMessageReceiver(this, commLogger, auth);
-        this.state = new ServerState(serverId, false, executorManager.getStateExecutor());
+
+        // Create ClientReplySender first
+        this.clientReplySender = new ClientReplySender(serverId, commLogger, auth);
+
+        // Create ServerState with a method reference that both sends reply and remembers it
+        // This breaks the circular dependency - StateMachineOperator gets a callback that handles both concerns
+        this.state = new ServerState(serverId, false, executorManager.getStateExecutor(),
+                                      this::sendAndRememberReply);
 
         this.clientRequestSender = new ClientRequestSender(serverId, commLogger, auth);
-        this.clientReplySender = new ClientReplySender(serverId, state, commLogger, auth);
         this.prePrepareSender = new PrePrepareSender(serverId, state, commLogger, auth);
         this.prepareSender = new PrepareSender(serverId, state, commLogger, auth);
         this.commitSender = new CommitSender(serverId, MAJORITY_COUNT, clientReplySender, state, commLogger, auth);
+
 
         this.clientRequestHandler = new ClientRequestHandler(state, clientRequestSender, clientReplySender, prePrepareSender);
         this.prePrepareHandler = new PrePrepareHandler(state, auth, prepareSender);
@@ -96,6 +103,14 @@ public class ServerNode extends Node {
         executorManager.submitMessageProcessing(() -> {
             commitHandler.handle(commitMessage);
         });
+    }
+
+    // Helper method used as callback for StateMachineOperator
+    // Sends reply to client and remembers it in state
+    private void sendAndRememberReply(MessageServiceOuterClass.ClientRequest request,
+                                      MessageServiceOuterClass.ClientReply reply) {
+        clientReplySender.sendClientReply(request, reply);
+        state.rememberReply(reply);
     }
 
     public void shutdown() {

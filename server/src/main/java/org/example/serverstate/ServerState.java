@@ -60,7 +60,9 @@ public final class ServerState {
     public record Header(long view, String primary, boolean faulty, long seq) {
     }
 
-    public ServerState(String serverId, boolean isFaulty, ExecutorService stateExec) {
+    public ServerState(String serverId, boolean isFaulty, ExecutorService stateExec,
+                       java.util.function.BiConsumer<org.example.MessageServiceOuterClass.ClientRequest,
+                                                      org.example.MessageServiceOuterClass.ClientReply> replySender) {
         this.stateExec = stateExec;
         // Initialize header using synchronous entry to ensure serialization early
         runSync(() -> {
@@ -70,7 +72,7 @@ public final class ServerState {
             this.collectorServerId = computeCollectorServerId(viewNumber);
             this.isFaulty = isFaulty;
             this.seqNum = 0L;
-            this.stateMachineOperator = new StateMachineOperator(this);
+            this.stateMachineOperator = new StateMachineOperator(this, replySender);
             this.livenessTimer = new LivenessTimer(Config.getServerTimeoutMillis(), this::onLivenessTimeout);
             return null;
         });
@@ -143,6 +145,10 @@ public final class ServerState {
     public void onLivenessTimeout() {
         runSync(() -> {
             logger.warn("Liveness timeout occurred in view {}, triggering view change", viewNumber);
+            for (MessageServiceOuterClass.ClientRequest request : stateMachineOperator.getPendingOperations()) {
+                logger.info("Pending request from clientId: {} timestamp: {}",
+                        request.getClientId(), request.getTimestamp());
+            }
             // TODO: trigger view change
         });
     }
@@ -243,11 +249,22 @@ public final class ServerState {
     // Generic execute that delegates to the pluggable state machine
     public CompletableFuture<MessageServiceOuterClass.ClientReply> executeRequest(MessageServiceOuterClass.ClientRequest request, long seqNum) {
         logger.info("Executing operation of type: {}", request.getOperation().getOpCase());
-        return runAsync(() -> {
-            if(stateMachineOperator.areOperationsPending()) livenessTimer.restart();
-            else livenessTimer.stop();
-            return null;
-        }).thenCompose(v -> stateMachineOperator.executeOperation(request, seqNum));
+        return stateMachineOperator.executeOperation(request, seqNum)
+            .thenApply(reply -> {
+                // After operation completes, update timer based on pending operations
+                runSync(() -> {
+                    boolean hasPending = stateMachineOperator.areOperationsPending();
+                    logger.info("Operation completed for seqNum {}. Pending operations: {}", seqNum, hasPending);
+                    if(hasPending) {
+                        logger.info("Restarting liveness timer - operations still pending");
+                        livenessTimer.restart();
+                    } else {
+                        logger.info("Stopping liveness timer - no pending operations");
+                        livenessTimer.stop();
+                    }
+                });
+                return reply;
+            });
     }
 
     public Object snapshotStateMachine() {

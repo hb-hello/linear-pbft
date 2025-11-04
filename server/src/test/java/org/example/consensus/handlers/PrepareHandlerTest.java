@@ -46,7 +46,8 @@ class PrepareHandlerTest {
 
     @BeforeEach
     void setUp() {
-        state = new ServerState("n1", false, stateExec);
+        // Pass a no-op callback for testing - replies aren't actually sent in unit tests
+        state = new ServerState("n1", false, stateExec, (request, reply) -> {});
         prepareSender = new MockPrepareSender("n1", state);
         commitSender = new MockCommitSender("n1", QUORUM_SIZE, state);
         handler = new PrepareHandler(state, QUORUM_SIZE, prepareSender, commitSender);

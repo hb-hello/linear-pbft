@@ -37,8 +37,9 @@ class StateMachineOperatorTest {
 
     @BeforeEach
     void setupOperator() {
-        state = new ServerState("n1", false, stateExec);
-        operator = new StateMachineOperator(state);
+        // Pass a no-op callback for testing - replies aren't actually sent in unit tests
+        state = new ServerState("n1", false, stateExec, (request, reply) -> {});
+        operator = new StateMachineOperator(state, (request, reply) -> { });
     }
 
     private MessageServiceOuterClass.ClientRequest createTransferRequest(String clientId, long timestamp,

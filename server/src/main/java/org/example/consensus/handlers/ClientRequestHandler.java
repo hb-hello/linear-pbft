@@ -36,7 +36,7 @@ public class ClientRequestHandler {
                 clientId, timestamp);
         if (timestamp <= state.lastReplyTimestamp(clientId)) {
             logger.info("Ignoring stale ClientRequest from client {}: timestamp {}", clientId, timestamp);
-            clientReplySender.resendCachedReply(request);
+            clientReplySender.resendCachedReply(state, request);
             return;
         }
 

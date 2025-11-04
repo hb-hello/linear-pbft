@@ -39,7 +39,8 @@ class ServerStateTest {
     }
 
     private ServerState newState(String serverId) {
-        return new ServerState(serverId, false, stateExec);
+        // Pass a no-op callback for testing - replies aren't actually sent in unit tests
+        return new ServerState(serverId, false, stateExec, (request, reply) -> {});
     }
 
     private MessageServiceOuterClass.Operation transferOp(String from, String to, double amount) {

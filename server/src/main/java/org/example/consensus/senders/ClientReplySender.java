@@ -11,12 +11,8 @@ import org.example.serverstate.ServerState;
 public class ClientReplySender extends MessageSender {
     private static final Logger logger = LogManager.getLogger(ClientReplySender.class);
 
-    private final ServerState state;
-
-    public ClientReplySender(String serverId, ServerState state,
-                             CommunicationLogger commLogger, MessageAuthenticator auth) {
+    public ClientReplySender(String serverId, CommunicationLogger commLogger, MessageAuthenticator auth) {
         super(serverId, commLogger, auth);
-        this.state = state;
     }
 
     public void sendClientReply(MessageServiceOuterClass.ClientRequest request, MessageServiceOuterClass.ClientReply reply) {
@@ -24,11 +20,9 @@ public class ClientReplySender extends MessageSender {
 
         logger.info("Sending ClientReply to client {}: {} {}", clientId, reply.getResult().getOpCase(), reply.getResult().getResult());
         signAndSend(clientId, reply, (stub, signed) -> stub.reply((MessageServiceOuterClass.ClientReply) signed));
-
-        state.rememberReply(reply);
     }
 
-    public void resendCachedReply(MessageServiceOuterClass.ClientRequest request) {
+    public void resendCachedReply(ServerState state, MessageServiceOuterClass.ClientRequest request) {
         String clientId = request.getClientId();
         long timestamp = request.getTimestamp();
         MessageServiceOuterClass.ClientReply cachedReply = state.cachedReply(clientId, timestamp);

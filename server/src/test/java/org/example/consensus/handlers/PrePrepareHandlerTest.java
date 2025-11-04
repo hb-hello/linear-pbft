@@ -45,7 +45,8 @@ class PrePrepareHandlerTest {
 
     @BeforeEach
     void setUp() {
-        state = new ServerState("n1", false, stateExec);
+        // Pass a no-op callback for testing - replies aren't actually sent in unit tests
+        state = new ServerState("n1", false, stateExec, (request, reply) -> {});
         // Use a mock authenticator that always returns true
         MockMessageAuthenticator mockAuth = new MockMessageAuthenticator();
         // Create a mock PrepareSender that doesn't actually send messages
