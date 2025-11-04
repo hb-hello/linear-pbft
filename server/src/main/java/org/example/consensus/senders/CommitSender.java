@@ -101,9 +101,9 @@ public class CommitSender extends MessageSender {
         }
 
         // Execute the operation
-        MessageServiceOuterClass.OperationResult result = state.executeOperation(clientRequest.getOperation());
+        MessageServiceOuterClass.ClientReply reply = state.executeRequest(clientRequest, sequenceNumber);
 
         // Send the reply to the client
-        clientReplySender.sendClientReply(clientRequest, result);
+        clientReplySender.sendClientReply(clientRequest, reply);
     }
 }

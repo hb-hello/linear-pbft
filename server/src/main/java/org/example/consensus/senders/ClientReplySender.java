@@ -19,21 +19,13 @@ public class ClientReplySender extends MessageSender {
         this.state = state;
     }
 
-    public void sendClientReply(MessageServiceOuterClass.ClientRequest request, MessageServiceOuterClass.OperationResult result) {
+    public void sendClientReply(MessageServiceOuterClass.ClientRequest request, MessageServiceOuterClass.ClientReply reply) {
         String clientId = request.getClientId();
 
-        MessageServiceOuterClass.ClientReply reply = MessageServiceOuterClass.ClientReply.newBuilder()
-                .setViewNumber(state.getViewNumber())
-                .setTimestamp(request.getTimestamp())
-                .setClientId(clientId)
-                .setServerId(nodeId)
-                .setResult(result)
-                .build();
-
-        logger.info("Sending ClientReply to client {}: {} {}", clientId, result.getOpCase(), result.getResult());
+        logger.info("Sending ClientReply to client {}: {} {}", clientId, reply.getResult().getOpCase(), reply.getResult().getResult());
         signAndSend(clientId, reply, (stub, signed) -> stub.reply((MessageServiceOuterClass.ClientReply) signed));
 
-        state.rememberReply(clientId, request.getTimestamp(), reply);
+        state.rememberReply(reply);
     }
 
     public void resendCachedReply(MessageServiceOuterClass.ClientRequest request) {

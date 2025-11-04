@@ -60,6 +60,22 @@ class ServerStateTest {
                 .build();
     }
 
+    private MessageServiceOuterClass.ClientRequest transferRequest(String clientId, long timestamp, String from, String to, double amount) {
+        return MessageServiceOuterClass.ClientRequest.newBuilder()
+                .setClientId(clientId)
+                .setTimestamp(timestamp)
+                .setOperation(transferOp(from, to, amount))
+                .build();
+    }
+
+    private MessageServiceOuterClass.ClientRequest balanceRequest(String clientId, long timestamp, String account) {
+        return MessageServiceOuterClass.ClientRequest.newBuilder()
+                .setClientId(clientId)
+                .setTimestamp(timestamp)
+                .setOperation(balanceOp(account))
+                .build();
+    }
+
     @Test
     void testSetViewAndPrimary_updatesHeaderAndRole() {
         ServerState state = newState("n1");
@@ -133,7 +149,7 @@ class ServerStateTest {
                 .setViewNumber(1L)
                 .setServerId("n1")
                 .build();
-        state.rememberReply("client1", 100L, reply);
+        state.rememberReply(reply);
         // Create a dummy ClientRequest to wrap
         MessageServiceOuterClass.ClientRequest dummyRequest = MessageServiceOuterClass.ClientRequest.newBuilder()
                 .setClientId("test")
@@ -203,7 +219,7 @@ class ServerStateTest {
                 .setViewNumber(1L)
                 .setServerId("n1")
                 .build();
-        state.rememberReply("client1", 100L, reply1);
+        state.rememberReply(reply1);
         assertEquals(100L, state.lastReplyTimestamp("client1"), "Last timestamp should be 100");
 
         MessageServiceOuterClass.ClientReply reply2 = MessageServiceOuterClass.ClientReply.newBuilder()
@@ -212,7 +228,7 @@ class ServerStateTest {
                 .setViewNumber(1L)
                 .setServerId("n1")
                 .build();
-        state.rememberReply("client1", 50L, reply2);
+        state.rememberReply(reply2);
         assertEquals(100L, state.lastReplyTimestamp("client1"), "Older timestamp should not overwrite");
 
         MessageServiceOuterClass.ClientReply reply3 = MessageServiceOuterClass.ClientReply.newBuilder()
@@ -221,16 +237,19 @@ class ServerStateTest {
                 .setViewNumber(1L)
                 .setServerId("n1")
                 .build();
-        state.rememberReply("client1", 150L, reply3);
+        state.rememberReply(reply3);
         assertEquals(150L, state.lastReplyTimestamp("client1"), "Newer timestamp should overwrite");
     }
 
     @Test
-    void testExecuteOperation_transferAndBalance() {
+    void testExecuteRequest_transferAndBalance() {
         ServerState state = newState("n1");
 
         // Transfer 5 from A to B
-        MessageServiceOuterClass.OperationResult res = state.executeOperation(transferOp("A", "B", 5.0));
+        MessageServiceOuterClass.ClientReply transferReply = state.executeRequest(
+                transferRequest("client1", 100L, "A", "B", 5.0), 1L);
+        assertNotNull(transferReply, "Transfer reply should not be null");
+        MessageServiceOuterClass.OperationResult res = transferReply.getResult();
         assertEquals(MessageServiceOuterClass.OperationResult.OpCase.RESULT, res.getOpCase());
         assertTrue(res.getResult());
 
@@ -240,25 +259,19 @@ class ServerStateTest {
         double b0 = init.get("B");
 
         // Check balances via balance requests
-        MessageServiceOuterClass.OperationResult balB = state.executeOperation(balanceOp("B"));
+        MessageServiceOuterClass.ClientReply balanceReplyB = state.executeRequest(
+                balanceRequest("client1", 101L, "B"), 2L);
+        assertNotNull(balanceReplyB, "Balance reply B should not be null");
+        MessageServiceOuterClass.OperationResult balB = balanceReplyB.getResult();
         assertEquals(MessageServiceOuterClass.OperationResult.OpCase.BALANCE, balB.getOpCase());
         assertEquals(b0 + 5.0, balB.getBalance(), 1e-9);
 
-        MessageServiceOuterClass.OperationResult balA = state.executeOperation(balanceOp("A"));
+        MessageServiceOuterClass.ClientReply balanceReplyA = state.executeRequest(
+                balanceRequest("client1", 102L, "A"), 3L);
+        assertNotNull(balanceReplyA, "Balance reply A should not be null");
+        MessageServiceOuterClass.OperationResult balA = balanceReplyA.getResult();
         assertEquals(MessageServiceOuterClass.OperationResult.OpCase.BALANCE, balA.getOpCase());
         assertEquals(a0 - 5.0, balA.getBalance(), 1e-9);
-    }
-
-    @Test
-    void testExecuteOperation_missingAccounts_throw() {
-        ServerState state = newState("n1");
-
-        // Unknown sender
-        assertThrows(IllegalArgumentException.class, () -> state.executeOperation(transferOp("Z", "B", 1.0)));
-        // Unknown receiver
-        assertThrows(IllegalArgumentException.class, () -> state.executeOperation(transferOp("A", "Z", 1.0)));
-        // Unknown account balance
-        assertThrows(IllegalArgumentException.class, () -> state.executeOperation(balanceOp("Z")));
     }
 
     @Test

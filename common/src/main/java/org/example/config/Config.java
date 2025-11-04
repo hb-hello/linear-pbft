@@ -30,6 +30,7 @@ public class Config {
     private static String tssPublicKeyPath;
 
     private static long clientTimeoutMillis;
+    private static long serverTimeoutMillis;
     private static int maxRetries;
     private static boolean initialized = false;
 
@@ -94,6 +95,11 @@ public class Config {
         clientTimeoutMillis = Long.parseLong(props.getProperty(
                 "client.timeout.millis",
                 "500"
+        ));
+
+        serverTimeoutMillis = Long.parseLong(props.getProperty(
+                "server.timeout.millis",
+                "1000"
         ));
 
         maxRetries = Integer.parseInt(props.getProperty(
@@ -321,6 +327,11 @@ public class Config {
     public static long getClientTimeoutMillis() {
         ensureInitialized();
         return clientTimeoutMillis;
+    }
+
+    public static long getServerTimeoutMillis() {
+        ensureInitialized();
+        return serverTimeoutMillis;
     }
 
     /**

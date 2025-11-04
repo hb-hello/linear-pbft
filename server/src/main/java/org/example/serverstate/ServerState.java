@@ -5,13 +5,11 @@ import com.google.protobuf.Message;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.example.MessageServiceOuterClass;
-import org.example.Node;
 import org.example.config.Config;
+import org.example.consensus.LivenessTimer;
 import org.example.messaging.MessageUtil;
 import org.example.messaging.ServerMessage;
-import org.example.statemachine.BankStateMachine;
 
-import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.*;
@@ -44,6 +42,9 @@ public final class ServerState {
     // State machine: balances
     private StateMachineOperator stateMachineOperator;
 
+    // Liveness timer
+    private LivenessTimer livenessTimer;
+
     // Reply tracking and caches
     private final ConcurrentHashMap<String, Long> replyTimestamps = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, MessageServiceOuterClass.ClientReply> replyCache = new ConcurrentHashMap<>();
@@ -70,6 +71,7 @@ public final class ServerState {
             this.isFaulty = isFaulty;
             this.seqNum = 0L;
             this.stateMachineOperator = new StateMachineOperator(this);
+            this.livenessTimer = new LivenessTimer(Config.getServerTimeoutMillis(), this::onLivenessTimeout);
             return null;
         });
     }
@@ -136,7 +138,20 @@ public final class ServerState {
         return (t instanceof RuntimeException re) ? re : new RuntimeException(t);
     }
 
+    // Timer callbacks
+
+    public void onLivenessTimeout() {
+        runSync(() -> {
+            logger.warn("Liveness timeout occurred in view {}, triggering view change", viewNumber);
+            // TODO: trigger view change
+        });
+    }
+
     // Header operations — blocking by default
+
+    public String getServerId() {
+        return runSync(() -> serverId);
+    }
 
     public String computeCollectorServerId(long viewNumber) {
 //        return computePrimaryServerId(viewNumber + 1);
@@ -226,9 +241,9 @@ public final class ServerState {
     // State-machine operations — example transfer and read-only balance
 
     // Generic execute that delegates to the pluggable state machine
-    public MessageServiceOuterClass.OperationResult executeOperation(MessageServiceOuterClass.Operation operation) {
-        logger.info("Executing operation of type: {}", operation.getOpCase());
-        return runSync(() -> stateMachineOperator.executeOperation(operation));
+    public MessageServiceOuterClass.ClientReply executeRequest(MessageServiceOuterClass.ClientRequest request, long seqNum) {
+        logger.info("Executing operation of type: {}", request.getOperation().getOpCase());
+        return runSync(() -> stateMachineOperator.executeOperation(request, seqNum));
     }
 
     public Object snapshotStateMachine() {
@@ -237,12 +252,16 @@ public final class ServerState {
 
     // Reply tracking — store the highest timestamp per client and a reply object
 
-    public void rememberReply(String clientId, long timestamp, MessageServiceOuterClass.ClientReply reply) {
+    public void rememberReply(MessageServiceOuterClass.ClientReply reply) {
         runSync(() -> {
+            String clientId = reply.getClientId();
+            long timestamp = reply.getTimestamp();
             Long prev = replyTimestamps.get(clientId);
             if (prev == null || timestamp >= prev) {
                 replyTimestamps.put(clientId, timestamp);
-                String requestId = MessageUtil.requestIdFor(clientId, timestamp);
+            }
+            String requestId = MessageUtil.requestIdFor(clientId, timestamp);
+            if (!replyCache.containsKey(requestId)) {
                 logger.info("Remembering reply for clientId: {} timestamp: {} requestId: {}", clientId, timestamp, requestId);
                 replyCache.put(requestId, reply);
             }
@@ -339,7 +358,8 @@ public final class ServerState {
 
     public ServerMessage findAggregatedPrepare(long viewNumber, long sequenceNumber) {
         return runSync(() -> {
-            if (hasAggregatedPrepare(viewNumber, sequenceNumber)) {;
+            if (hasAggregatedPrepare(viewNumber, sequenceNumber)) {
+                ;
                 return serverMessageTracker.findMessage(ServerMessage.PREPARE, viewNumber, sequenceNumber, collectorServerId);
             }
             return null;
@@ -353,7 +373,7 @@ public final class ServerState {
     public boolean hasAggregatedPrepare(long viewNumber, long sequenceNumber) {
         return runSync(() -> {
             ServerMessage message = serverMessageTracker.findMessage(ServerMessage.PREPARE, viewNumber, sequenceNumber, collectorServerId);
-            if(message == null) {
+            if (message == null) {
                 return false;
             }
             return message.isAggregated();
@@ -396,7 +416,8 @@ public final class ServerState {
 
     public ServerMessage findAggregatedCommit(long viewNumber, long sequenceNumber) {
         return runSync(() -> {
-            if (hasAggregatedCommit(viewNumber, sequenceNumber)) {;
+            if (hasAggregatedCommit(viewNumber, sequenceNumber)) {
+                ;
                 return serverMessageTracker.findMessage(ServerMessage.COMMIT, viewNumber, sequenceNumber, collectorServerId);
             }
             return null;
@@ -410,7 +431,7 @@ public final class ServerState {
     public boolean hasAggregatedCommit(long viewNumber, long sequenceNumber) {
         return runSync(() -> {
             ServerMessage message = serverMessageTracker.findMessage(ServerMessage.COMMIT, viewNumber, sequenceNumber, collectorServerId);
-            if(message == null) {
+            if (message == null) {
                 return false;
             }
             return message.isAggregated();

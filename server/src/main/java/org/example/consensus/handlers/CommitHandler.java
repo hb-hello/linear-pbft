@@ -6,8 +6,6 @@ import org.apache.logging.log4j.Logger;
 import org.example.MessageServiceOuterClass;
 import org.example.consensus.senders.ClientReplySender;
 import org.example.consensus.senders.CommitSender;
-import org.example.consensus.senders.PrepareSender;
-import org.example.messaging.ServerMessage;
 import org.example.serverstate.ServerState;
 
 import java.util.Objects;
@@ -87,9 +85,9 @@ public class CommitHandler {
         }
 
         // Execute the operation
-        MessageServiceOuterClass.OperationResult result = state.executeOperation(clientRequest.getOperation());
+        MessageServiceOuterClass.ClientReply reply = state.executeRequest(clientRequest, sequenceNumber);
 
         // Send the reply to the client
-        clientReplySender.sendClientReply(clientRequest, result);
+        clientReplySender.sendClientReply(clientRequest, reply);
     }
 }
