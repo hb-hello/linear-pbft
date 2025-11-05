@@ -12,6 +12,7 @@ import org.example.statemachine.StateMachineOperation;
 import org.example.statemachine.TransferOp;
 
 import java.time.Duration;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.TimeoutException;
 
 import static org.example.messaging.MessageUtil.requestIdFor;
@@ -111,6 +112,7 @@ public class ClientNode extends Node {
         // Await consensus
         try {
             Message consensus = messageTracker.awaitConsensus(requestId, Duration.ofMillis(getClientRequestTimeoutMillis()), majorityCountForClient());
+            logger.info("Completed waiting for request id {} as consensus has been achieved: {}", requestId, consensus.getDescriptorForType().getName());
             handleOperationResult((MessageServiceOuterClass.ClientReply) consensus);
             return true;
         } catch (TimeoutException te) {
@@ -118,7 +120,7 @@ public class ClientNode extends Node {
             return false;
         } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();
-            logger.warn("Interrupted while waiting for consensus for id {}", requestId);
+            logger.warn("Interrupted while waiting for consensus for id {}", requestId, ie);
             return false;
         }
     }
@@ -209,5 +211,11 @@ public class ClientNode extends Node {
 
     public void start() {
         this.startAsync(receiver);
+    }
+
+    public void shutdown() {
+        this.receiver.shutdown();
+        this.sender.shutdown();
+        super.shutdown();
     }
 }

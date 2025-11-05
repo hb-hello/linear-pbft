@@ -46,7 +46,11 @@ public class PrepareSender extends MessageSender {
             return;
         };
 
-        if (!state.isCollector()) send(state.getCollectorServerId(), signedPrepareMsg, (stub, signed) -> stub.prepare((MessageServiceOuterClass.PrepareMessage) signed));
+        if (state.isCollector()) {
+            logger.info("This server is the collector, no need to send Prepare to self");
+            return;
+        }
+        send(state.getCollectorServerId(), signedPrepareMsg, (stub, signed) -> stub.prepare((MessageServiceOuterClass.PrepareMessage) signed));
         logger.info("Sent Prepare for view {} seq {}", viewNumber, sequenceNumber);
     }
 

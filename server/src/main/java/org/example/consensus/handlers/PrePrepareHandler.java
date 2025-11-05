@@ -65,7 +65,8 @@ public class PrePrepareHandler {
         MessageServiceOuterClass.PrePrepareMessage prePrepareMessage = prePrepareRequest.getPrePrepareMessage();
 
         if (!isValid(prePrepareMessage)) {
-            logger.info("Invalid PrePrepare message, ignoring");
+            logger.info("Invalid PrePrepare message, ignoring for view {}, seq {}",
+                    prePrepareMessage.getViewNumber(), prePrepareMessage.getSequenceNumber());
             return;
         }
 

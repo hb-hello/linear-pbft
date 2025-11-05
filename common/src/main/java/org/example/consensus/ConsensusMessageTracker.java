@@ -52,6 +52,7 @@ public class ConsensusMessageTracker<K, V> {
             return new ConsensusMessage<>(id, required, requestIdExtractor, responderIdExtractor, valueExtractor);
         });
 
+        System.out.println("DEBUG: recordMessage for " + requestId + " - using ConsensusMessage@" + System.identityHashCode(state) + ", future@" + System.identityHashCode(state.future()));
         state.addReply(reply);
         return true;
     }
@@ -82,14 +83,25 @@ public class ConsensusMessageTracker<K, V> {
             return new ConsensusMessage<>(id, required, requestIdExtractor, responderIdExtractor, valueExtractor);
         });
 
+        System.out.println("DEBUG: awaitConsensus for " + requestId + " - using ConsensusMessage@" + System.identityHashCode(state) + ", future@" + System.identityHashCode(state.future()));
+        System.out.println("DEBUG: awaitConsensus for " + requestId + " - future.isDone()=" + state.future().isDone());
+
         try {
-            Message reply = state.future().get(timeout.toMillis(), TimeUnit.MILLISECONDS);
+            if (state.future().isDone()) {
+                // Already completed
+                System.out.println("DEBUG: awaitConsensus for " + requestId + " - future already done, returning immediately");
+                return state.future().get();
+            }
             // Keep the state in tracked map even after completion
-            return reply;
+            System.out.println("DEBUG: awaitConsensus for " + requestId + " - waiting up to " + timeout.toMillis() + "ms for future to complete");
+            Message result = state.future().get(timeout.toMillis(), TimeUnit.MILLISECONDS);
+            System.out.println("DEBUG: awaitConsensus for " + requestId + " - future completed successfully!");
+            return result;
         } catch (ExecutionException e) {
             throw new RuntimeException("Consensus wait failed", e.getCause());
         } catch (TimeoutException te) {
             // keep state for continued waiting
+            System.out.println("DEBUG: awaitConsensus for " + requestId + " - TIMEOUT! future.isDone()=" + state.future().isDone());
             logger.info("Timeout waiting for consensus on requestId={}", requestId);
             throw te;
         }

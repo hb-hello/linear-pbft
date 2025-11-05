@@ -2,6 +2,7 @@ package org.example.testutil;
 
 import org.example.MessageServiceOuterClass;
 import org.example.consensus.senders.PrePrepareSender;
+import org.example.consensus.senders.PrepareSender;
 import org.example.crypto.MessageAuthenticator;
 import org.example.messaging.CommunicationLogger;
 import org.example.messaging.MessageUtil;
@@ -18,7 +19,7 @@ public class MockPrePrepareSender extends PrePrepareSender {
     private int attemptCount = 0;
 
     public MockPrePrepareSender(String nodeId, ServerState state, CommunicationLogger commLogger, MessageAuthenticator auth) {
-        super(nodeId, state, commLogger, auth);
+        super(nodeId, state, commLogger, auth, new MockPrepareSender(nodeId, state));
         this.mockState = state;
     }
 

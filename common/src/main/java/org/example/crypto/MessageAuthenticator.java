@@ -108,8 +108,8 @@ public class MessageAuthenticator {
         byte[] sig = message.getField(fSig) instanceof ByteString bs ? bs.toByteArray() : new byte[0];
 
         Descriptors.FieldDescriptor fIsAggregated = message.getDescriptorForType().findFieldByName("is_aggregated");
-        logger.info("Checking isAggregated while verifying signature for message of type {}: {}",
-                message.getClass().getSimpleName(), fIsAggregated != null ? message.getField(fIsAggregated) : "null");
+//        logger.info("Checking isAggregated while verifying signature for message of type {}: {}",
+//                message.getClass().getSimpleName(), fIsAggregated != null ? message.getField(fIsAggregated) : "null");
         // if aggregated signature, verify final
         if (fIsAggregated != null) {
             boolean isAggregated = message.getField(fIsAggregated) instanceof Boolean b ? b : false;

@@ -14,11 +14,13 @@ public class PrePrepareSender extends MessageSender {
     private static final Logger logger = LogManager.getLogger(PrePrepareSender.class);
 
     private final ServerState state;
+    private final PrepareSender prepareSender;
 
     public PrePrepareSender(String serverId, ServerState state,
-                            CommunicationLogger commLogger, MessageAuthenticator auth) {
+                            CommunicationLogger commLogger, MessageAuthenticator auth, PrepareSender prepareSender) {
         super(serverId, commLogger, auth);
         this.state = state;
+        this.prepareSender = prepareSender;
     }
 
     /**
@@ -77,6 +79,8 @@ public class PrePrepareSender extends MessageSender {
 
         // Sign with TSS and broadcast
         broadcastToServers(request);
+        // After broadcasting PrePrepare, send Prepare to collector (so that collector gets a quorum of prepares)
+        prepareSender.sendPrepare(state.getViewNumber(), seqNum, digest);
     }
 
     // package-private for testing

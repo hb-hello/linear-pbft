@@ -576,7 +576,7 @@ public final class ServerState {
                 // check if pre-prepare digest matches the commit digests
                 ByteString digest = hasAggregatedCommit ? findAggregatedCommit(viewNumber, sequenceNumber).getDigest().orElse(null) : getQuorumDigest(ServerMessage.COMMIT, viewNumber, sequenceNumber);
                 if (digest == null) {
-                    logger.info("Digest from commits is null for view {} seq {}, cannot be prepared", viewNumber, sequenceNumber);
+                    logger.info("Digest from commits is null for view {} seq {}, cannot be committed", viewNumber, sequenceNumber);
                     return false;
                 }
                 return Objects.equals(digest, getPrePrepareDigest(viewNumber, sequenceNumber));

@@ -81,6 +81,9 @@ public final class SenderDispatcher implements AutoCloseable {
         // Forcefully shutdown, cancelling pending tasks
         executors.values().forEach(ExecutorService::shutdownNow);
 
+        // Shutdown all existing client nodes
+        clients.values().forEach(ClientNode::shutdown);
+
         // Clear the maps
         executors.clear();
         clients.clear();
@@ -93,7 +96,9 @@ public final class SenderDispatcher implements AutoCloseable {
         for (char c = 'A'; c <= 'J'; c++) {
             String id = String.valueOf(c);
             executors.put(id, newSingle("sender-" + id));
-            clients.put(id, new ClientNode(id));
+            ClientNode client = new ClientNode(id);
+            client.start();
+            clients.put(id, client);
         }
         executors.put(LF_SENDER, newSingle("sender-LF"));
     }

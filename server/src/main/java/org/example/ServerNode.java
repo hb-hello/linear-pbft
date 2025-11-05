@@ -52,8 +52,8 @@ public class ServerNode extends Node {
 
 
         this.clientRequestSender = new ClientRequestSender(serverId, commLogger, auth);
-        this.prePrepareSender = new PrePrepareSender(serverId, state, commLogger, auth);
         this.prepareSender = new PrepareSender(serverId, state, commLogger, auth);
+        this.prePrepareSender = new PrePrepareSender(serverId, state, commLogger, auth, prepareSender);
         this.commitSender = new CommitSender(serverId, MAJORITY_COUNT, clientReplySender, state, commLogger, auth);
 
 
