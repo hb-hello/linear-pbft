@@ -4,6 +4,7 @@ import com.google.protobuf.ByteString;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.example.MessageServiceOuterClass;
+import org.example.ServerNode;
 import org.example.consensus.senders.ClientReplySender;
 import org.example.consensus.senders.CommitSender;
 import org.example.serverstate.ServerState;
@@ -61,13 +62,13 @@ public class CommitHandler {
             return;
         }
 
-        if (!state.appendServerMessage(commitMessage)) {
+        if (!state.appendServerMessage(commitMessage, quorumSize)) {
             logger.info("Failed to append Commit message to state for view {} seq {}, likely due to duplicate check",
                     viewNumber, sequenceNumber);
             return;
         }
 
-        if(!state.isCommitted(viewNumber, sequenceNumber, quorumSize)) {
+        if(!state.isCommitted(viewNumber, sequenceNumber)) {
             logger.info("Cannot execute / send Aggregated Commit for view {} seq {}: not committed",
                     viewNumber, sequenceNumber);
             return;

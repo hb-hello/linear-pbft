@@ -47,7 +47,7 @@ public record OperationLog(ConcurrentHashMap<Long, OperationLogEntry> entries) {
 
     public void updateStatusForAllBefore(long sequenceNumber, OperationStatus status) {
         entries.forEach((seqNum, entry) -> {
-            if (seqNum < sequenceNumber) {
+            if (seqNum <= sequenceNumber) {
                 entry.setStatus(status);
             }
         });
@@ -58,6 +58,15 @@ public record OperationLog(ConcurrentHashMap<Long, OperationLogEntry> entries) {
         if (entry != null) {
             entry.setRequest(request);
         }
+    }
+
+    @Override
+    public String toString() {
+        StringBuilder sb = new StringBuilder();
+        entries.forEach((seqNum, entry) -> {
+            sb.append("SeqNum: ").append(seqNum).append(", Entry: ").append(entry.toString()).append("\n");
+        });
+        return sb.toString();
     }
 
     public void clear() {

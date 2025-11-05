@@ -20,6 +20,7 @@ import java.util.function.Function;
 public class ConsensusMessage<K, V> {
 
     private final K requestId;
+    private final int required;
 
     private final Function<Message, K> requestIdExtractor;
     private final Function<Message, String> responderIdExtractor;
@@ -30,11 +31,12 @@ public class ConsensusMessage<K, V> {
     private final ConcurrentMap<V, AtomicInteger> valueCounts = new ConcurrentHashMap<>(); // value -> count
     private final ConcurrentMap<V, Message> representative = new ConcurrentHashMap<>(); // value -> exemplar response
 
-    public ConsensusMessage(K requestId,
+    public ConsensusMessage(K requestId, int required,
                             Function<Message, K> requestIdExtractor,
                             Function<Message, String> responderIdExtractor,
                             Function<Message, V> valueExtractor) {
         this.requestId = Objects.requireNonNull(requestId, "requestId");
+        this.required = required;
         this.requestIdExtractor = Objects.requireNonNull(requestIdExtractor, "requestIdExtractor");
         this.responderIdExtractor = Objects.requireNonNull(responderIdExtractor, "responderIdExtractor");
         this.valueExtractor = Objects.requireNonNull(valueExtractor, "valueExtractor");
@@ -73,6 +75,8 @@ public class ConsensusMessage<K, V> {
 
     public int uniqueResponders() { return respondersSeen.size(); }
 
+    public int getQuorumRequired() { return required; }
+
     /** Snapshot counts map (copy) for inspection */
     public Map<V, Integer> snapshotCounts() {
         ConcurrentHashMap<V, Integer> copy = new ConcurrentHashMap<>();
@@ -85,13 +89,16 @@ public class ConsensusMessage<K, V> {
      * completes the future with the representative message for that value.
      * Handles empty values (e.g., empty digests) as valid consensus values.
      *
-     * @param required Number of matching responses required for consensus
      * @return true if quorum is met, false otherwise
      */
-    public boolean checkQuorum(int required) {
+    public boolean checkQuorum() {
         // Handle edge case: if required is 0 or negative, quorum is always met if we have any messages
         if (required <= 0) {
             return !valueCounts.isEmpty();
+        }
+
+        if (future.isDone()) {
+            return true; // already completed
         }
 
         // Check if any value (including empty values like empty digests) has reached the required count

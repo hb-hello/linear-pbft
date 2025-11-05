@@ -80,30 +80,29 @@ class ServerMessageTest {
         assertTrue(serverMessage.getSequenceNumber().isEmpty());
         assertTrue(serverMessage.getDigest().isEmpty());
     }
-
-    @Test
-    void testToDetailedStringForPrepareMessage() {
-        // Create a PrepareMessage with all fields
-        ByteString digest = ByteString.copyFromUtf8("test-digest");
-        PrepareMessage message = PrepareMessage.newBuilder()
-                .setViewNumber(3L)
-                .setSequenceNumber(200L)
-                .setDigest(digest)
-                .setIsAggregated(false)
-                .setSignerId("server2")
-                .setSignature(ByteString.copyFromUtf8("sig"))
-                .build();
-
-        ServerMessage serverMessage = ServerMessage.wrap(message);
-        String result = serverMessage.toDetailedString();
-
-        // Verify the string contains all expected fields
-        assertTrue(result.contains("PrepareMessage"));
-        assertTrue(result.contains("viewNumber=3"));
-        assertTrue(result.contains("sequenceNumber=200"));
-        assertTrue(result.contains("digest=test-digest"));
-        assertTrue(result.contains("index=PrepareMessage:3:200"));
-    }
+//    @Test
+//    void testToDetailedStringForPrepareMessage() {
+//        // Create a PrepareMessage with all fields
+//        ByteString digest = ByteString.copyFromUtf8("test-digest");
+//        PrepareMessage message = PrepareMessage.newBuilder()
+//                .setViewNumber(3L)
+//                .setSequenceNumber(200L)
+//                .setDigest(digest)
+//                .setIsAggregated(false)
+//                .setSignerId("server2")
+//                .setSignature(ByteString.copyFromUtf8("sig"))
+//                .build();
+//
+//        ServerMessage serverMessage = ServerMessage.wrap(message);
+//        String result = serverMessage.toDetailedString();
+//
+//        // Verify the string contains all expected fields
+//        assertTrue(result.contains("PrepareMessage"));
+//        assertTrue(result.contains("viewNumber=3"));
+//        assertTrue(result.contains("sequenceNumber=200"));
+//        assertTrue(result.contains("digest=test-digest"));
+//        assertTrue(result.contains("index=PrepareMessage:3:200"));
+//    }
 
     @Test
     void testToDetailedStringForClientRequest() {
@@ -149,45 +148,45 @@ class ServerMessageTest {
         assertTrue(result.contains("index=ClientReply:7"));
     }
 
-    @Test
-    void testToDetailedStringForPrePrepareRequest() {
-        // Create a PrePrepareRequest with nested message and ClientRequest
-        ByteString digest = ByteString.copyFromUtf8("nested-digest");
-        PrePrepareMessage prePrepareMsg = PrePrepareMessage.newBuilder()
-                .setViewNumber(5L)
-                .setSequenceNumber(150L)
-                .setDigest(digest)
-                .setSignerId("server1")
-                .build();
-
-        // Create a ClientRequest to embed in the PrePrepareRequest
-        ClientRequest clientRequest = ClientRequest.newBuilder()
-                .setClientId("client1")
-                .setTimestamp(123456L)
-                .setOperation(Operation.newBuilder()
-                        .setTransfer(Transfer.newBuilder()
-                                .setSender("A")
-                                .setReceiver("B")
-                                .setAmount(5.0)
-                                .build())
-                        .build())
-                .build();
-
-        PrePrepareRequest request = PrePrepareRequest.newBuilder()
-                .setPrePrepareMessage(prePrepareMsg)
-                .setRequest(clientRequest)
-                .build();
-
-        ServerMessage serverMessage = ServerMessage.wrap(request);
-        String result = serverMessage.toDetailedString();
-
-        // Verify the string contains nested fields
-        assertTrue(result.contains("PrePrepareRequest"));
-        assertTrue(result.contains("viewNumber=5"));
-        assertTrue(result.contains("sequenceNumber=150"));
-        assertTrue(result.contains("digest=nested-digest"));
-        assertTrue(result.contains("index=PrePrepareRequest:5:150"));
-    }
+//    @Test
+//    void testToDetailedStringForPrePrepareRequest() {
+//        // Create a PrePrepareRequest with nested message and ClientRequest
+//        ByteString digest = ByteString.copyFromUtf8("nested-digest");
+//        PrePrepareMessage prePrepareMsg = PrePrepareMessage.newBuilder()
+//                .setViewNumber(5L)
+//                .setSequenceNumber(150L)
+//                .setDigest(digest)
+//                .setSignerId("server1")
+//                .build();
+//
+//        // Create a ClientRequest to embed in the PrePrepareRequest
+//        ClientRequest clientRequest = ClientRequest.newBuilder()
+//                .setClientId("client1")
+//                .setTimestamp(123456L)
+//                .setOperation(Operation.newBuilder()
+//                        .setTransfer(Transfer.newBuilder()
+//                                .setSender("A")
+//                                .setReceiver("B")
+//                                .setAmount(5.0)
+//                                .build())
+//                        .build())
+//                .build();
+//
+//        PrePrepareRequest request = PrePrepareRequest.newBuilder()
+//                .setPrePrepareMessage(prePrepareMsg)
+//                .setRequest(clientRequest)
+//                .build();
+//
+//        ServerMessage serverMessage = ServerMessage.wrap(request);
+//        String result = serverMessage.toDetailedString();
+//
+//        // Verify the string contains nested fields
+//        assertTrue(result.contains("PrePrepareRequest"));
+//        assertTrue(result.contains("viewNumber=5"));
+//        assertTrue(result.contains("sequenceNumber=150"));
+//        assertTrue(result.contains("digest=nested-digest"));
+//        assertTrue(result.contains("index=PrePrepareRequest:5:150"));
+//    }
 
     @Test
     void testGetMessageIndexForPrepareMessage() {

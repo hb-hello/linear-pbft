@@ -64,7 +64,7 @@ public class PrePrepareSender extends MessageSender {
 
         MessageServiceOuterClass.PrePrepareMessage signedPrePrepareMsg = (MessageServiceOuterClass.PrePrepareMessage) auth.sign(prePrepareMsg);
 
-        state.appendServerMessage(signedPrePrepareMsg);
+        state.appendServerMessage(signedPrePrepareMsg, clientRequest, 0);
 
         MessageServiceOuterClass.PrePrepareRequest request =
                 MessageServiceOuterClass.PrePrepareRequest.newBuilder()

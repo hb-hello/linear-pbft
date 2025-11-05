@@ -37,13 +37,13 @@ public class CheckpointHandler {
             return;
         }
 
-        if (!state.appendServerMessage(checkpointMessage)) {
+        if (!state.appendServerMessage(checkpointMessage, quorumSize)) {
             logger.info("Failed to append Checkpoint message to state for view {} seq {}, likely due to duplicate check",
                     viewNumber, sequenceNumber);
             return;
         }
 
-        if(!state.checkMessageQuorum(checkpointMessage, quorumSize)) {
+        if(!state.checkMessageQuorum(checkpointMessage)) {
             logger.info("Checkpoint for view {} seq {} has not reached quorum yet", viewNumber, sequenceNumber);
             return;
         }

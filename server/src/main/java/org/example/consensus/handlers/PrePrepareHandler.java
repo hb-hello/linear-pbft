@@ -80,7 +80,7 @@ public class PrePrepareHandler {
                 prePrepareMessage.getSequenceNumber(),
                 prePrepareMessage.getDigest());
 
-        if (!state.appendServerMessage(prePrepareMessage)) {
+        if (!state.appendServerMessage(prePrepareMessage, prePrepareRequest.getRequest(), 0)) {
             logger.info("Duplicate PrePrepare message detected in state, ignoring");
             return;
         }

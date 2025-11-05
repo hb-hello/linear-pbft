@@ -30,6 +30,7 @@ public final class CliApp {
                 System.out.println(" 3 - PrintStatus");
                 System.out.println(" 4 - PrintView");
                 System.out.println(" 5 - Continue with next set");
+                System.out.println(" 6 - PrintOperationLog");
                 System.out.println(" 0 - Exit");
                 System.out.print("Choice: ");
                 String choice = sc.nextLine().trim();
@@ -80,6 +81,11 @@ public final class CliApp {
                             dispatcher.submit(ev);
                         }
                         System.out.println("Set scheduled; processing continues in background.");
+                    }
+                    case "6" -> {
+                        System.out.print("Enter server id: ");
+                        String serverId = sc.nextLine().trim();
+                        printOperationLog(serverId);
                     }
                     case "0" -> {
                         System.out.println("Exiting...");

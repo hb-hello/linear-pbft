@@ -60,6 +60,22 @@ public class MessageUtil {
     }
 
     /**
+     * Convert a digest byte array to a readable hexadecimal string.
+     * This conversion is deterministic - the same digest will always produce the same string.
+     */
+    public static String digestToString(byte[] digest) {
+        StringBuilder hexString = new StringBuilder();
+        for (byte b : digest) {
+            String hex = Integer.toHexString(0xff & b);
+            if (hex.length() == 1) {
+                hexString.append('0');
+            }
+            hexString.append(hex);
+        }
+        return hexString.toString();
+    }
+
+    /**
      * Compose a stable request id from client id and timestamp.
      * Kept generic so both client and server code can rely on identical formatting.
      */

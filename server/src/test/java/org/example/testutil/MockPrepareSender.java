@@ -49,7 +49,7 @@ public class MockPrepareSender extends PrepareSender {
         }
 
         // Append the signed message to state (same behavior as real PrepareSender)
-        mockState.appendServerMessage(capturedPrepare);
+        mockState.appendServerMessage(capturedPrepare, 0); // Use 0 quorum for testing
 
         // Capture the collector ID (same as real PrepareSender)
         capturedTargetNodeId = mockState.getCollectorServerId();

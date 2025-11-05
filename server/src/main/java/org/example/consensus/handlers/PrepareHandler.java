@@ -53,7 +53,7 @@ public class PrepareHandler {
             return;
         }
 
-        if (!state.appendServerMessage(prepareMessage)) {
+        if (!state.appendServerMessage(prepareMessage, quorumSize)) {
             logger.info("Failed to append Prepare message to state for view {} seq {}, likely due to duplicate check",
                     viewNumber, sequenceNumber);
             return;
@@ -62,7 +62,7 @@ public class PrepareHandler {
         logger.info("Received digest in Prepare for view {} seq {}: {}",
                 viewNumber, sequenceNumber, prepareMessage.getDigest());
 
-        if(!state.isPrepared(viewNumber, sequenceNumber, quorumSize)) {
+        if(!state.isPrepared(viewNumber, sequenceNumber)) {
             logger.info("Cannot send Commit / Aggregated Prepare for view {} seq {}: not prepared",
                     viewNumber, sequenceNumber);
             return;

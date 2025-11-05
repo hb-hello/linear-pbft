@@ -22,7 +22,9 @@ public final class SenderDispatcher implements AutoCloseable {
         for (char c = 'A'; c <= 'J'; c++) {
             String id = String.valueOf(c);
             executors.put(id, newSingle("sender-" + id));
-            clients.put(id, new ClientNode(id));
+            ClientNode client = new ClientNode(id);
+            client.start();
+            clients.put(id, client);
         }
         executors.put(LF_SENDER, newSingle("sender-LF"));
     }
@@ -54,7 +56,7 @@ public final class SenderDispatcher implements AutoCloseable {
         ex.execute(() -> {
             try {
                 ClientNode clientNode = clients.get(clientId);
-                clientNode.start();
+                clientNode.reset();
 
                 // Process the operation directly
                 clientNode.processOperation(operation);

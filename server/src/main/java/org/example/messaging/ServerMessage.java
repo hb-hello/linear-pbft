@@ -6,6 +6,8 @@ import com.google.protobuf.Message;
 
 import java.util.Optional;
 
+import static org.example.messaging.MessageUtil.digestToString;
+
 /**
  * Wrapper interface for server-to-server PBFT protocol messages.
  * Provides unified access to common fields (viewNumber, sequenceNumber, digest)
@@ -195,7 +197,7 @@ public interface ServerMessage {
         Optional<ByteString> digest = getDigest();
         if (digest.isPresent()) {
             if (hasFields) sb.append(", ");
-            sb.append("digest=").append(digest.get().toStringUtf8());
+            sb.append("digest=").append(digestToString(digest.get().toByteArray()));
             hasFields = true;
         }
 

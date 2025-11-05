@@ -19,6 +19,7 @@ public class StateMachineOperator {
     private static final Logger logger = LogManager.getLogger(StateMachineOperator.class);
 
     private final ServerState state;
+    private final OperationLog operationLog;
     private final StateMachine stateMachine;
     private long lastExecutedSeqNum = 0L;
     private final Map<Long, MessageServiceOuterClass.ClientRequest> pendingOperations = new ConcurrentHashMap<>();
@@ -27,10 +28,11 @@ public class StateMachineOperator {
     private final BiConsumer<ServerState, Long> checkpointSender;
 
     // all methods should be called from within state's runSync
-    public StateMachineOperator(ServerState state,
+    public StateMachineOperator(ServerState state, OperationLog operationLog,
                                 BiConsumer<MessageServiceOuterClass.ClientRequest, MessageServiceOuterClass.ClientReply> replySender,
                                 BiConsumer<ServerState, Long> checkpointSender) {
         this.state = state;
+        this.operationLog = operationLog;
         this.replySender = replySender;
         this.checkpointSender = checkpointSender;
         this.stateMachine = new BankStateMachine(new HashMap<>(Config.getClientBalances()));
@@ -74,9 +76,11 @@ public class StateMachineOperator {
 
             // Execute the operation
             MessageServiceOuterClass.Operation operation = request.getOperation();
-            logger.info("Executing operation of type: {}", operation.getOpCase());
+            logger.info("Executing operation of type: {} at seq {}", operation.getOpCase(), seqNum);
             MessageServiceOuterClass.OperationResult result = stateMachine.execute(operation);
             markExecutedUpTo(seqNum);
+
+            if (operationLog != null) operationLog.updateStatus(seqNum, OperationStatus.EXECUTED);
 
             // Send checkpoint if at checkpoint interval
             checkpointSender.accept(state, seqNum);
@@ -118,6 +122,7 @@ public class StateMachineOperator {
 
             pendingOperations.remove(nextSeqNum);
             lastExecutedSeqNum = nextSeqNum;
+            if (operationLog != null) operationLog.updateStatus(nextSeqNum, OperationStatus.EXECUTED);
 
             // Send the reply to the client for the pending operation using the callback
             replySender.accept(nextRequest, reply);
@@ -146,7 +151,7 @@ public class StateMachineOperator {
         //TODO: catch up state from another server
     }
 
-    public Object snapshot() {
+    public String snapshot() {
         return stateMachine.snapshotToString();
     }
 

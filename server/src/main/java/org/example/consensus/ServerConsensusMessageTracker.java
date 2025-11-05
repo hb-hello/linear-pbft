@@ -55,20 +55,20 @@ public class ServerConsensusMessageTracker extends ConsensusMessageTracker<Strin
      * @param reply the ServerMessage reply
      * @return true (always, as the reply is always recorded)
      */
-    public boolean recordMessage(String requestId, ServerMessage reply) {
+    public boolean recordMessage(String requestId, ServerMessage reply, int required) {
         // Use parent's recordMessage to handle the consensus message creation and reply tracking
         // Note: Parent creates generic ConsensusMessage, but we need ServerConsensusMessage for messageIndexWithSender
         // So we override the tracked field to store ServerConsensusMessage instances instead
 
         // First ensure we have a ServerConsensusMessage (not just ConsensusMessage)
         tracked.computeIfAbsent(requestId, id -> {
-            return new ServerConsensusMessage<>(id, msg -> {
+            return new ServerConsensusMessage<>(id, required, msg -> {
                 return msg.getDigest().orElse(com.google.protobuf.ByteString.EMPTY);
             });
         });
 
         // Now use parent's recordMessage to add the reply
-        super.recordMessage(requestId, reply.getMessage());
+        super.recordMessage(requestId, reply.getMessage(), required);
 
         // Track the messageIndexWithSender
         ServerConsensusMessage<ByteString> serverConsensusMsg = tracked.get(requestId);
@@ -92,22 +92,21 @@ public class ServerConsensusMessageTracker extends ConsensusMessageTracker<Strin
      */
     public boolean recordMessageAndCheckQuorum(String requestId, ServerMessage reply, int required) {
         // Record the message (which also tracks messageIndexWithSender)
-        recordMessage(requestId, reply);
+        recordMessage(requestId, reply, required);
 
         // Get the ServerConsensusMessage and check if quorum was reached
-        return this.checkMessageQuorum(requestId, required);
+        return this.checkMessageQuorum(requestId);
     }
 
     /**
      * Check if a quorum of messages with the same request ID exists.
      *
      * @param requestId the request identifier
-     * @param quorumSize the required quorum size
      * @return true if quorum is met, false otherwise
      */
-    public boolean checkMessageQuorum(String requestId, int quorumSize) {
+    public boolean checkMessageQuorum(String requestId) {
         ServerConsensusMessage<ByteString> serverConsensusMsg = tracked.get(requestId);
-        return serverConsensusMsg != null && serverConsensusMsg.checkQuorum(quorumSize);
+        return serverConsensusMsg != null && serverConsensusMsg.checkQuorum();
     }
 
     /**

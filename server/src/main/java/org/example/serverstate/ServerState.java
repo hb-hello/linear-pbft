@@ -75,7 +75,7 @@ public final class ServerState {
             this.collectorServerId = computeCollectorServerId(viewNumber);
             this.isFaulty = isFaulty;
             this.seqNum = 0L;
-            this.stateMachineOperator = new StateMachineOperator(this, replySender, checkpointSender);
+            this.stateMachineOperator = new StateMachineOperator(this, operationLog, replySender, checkpointSender);
             this.livenessTimer = new LivenessTimer(Config.getServerTimeoutMillis(), this::onLivenessTimeout);
             return null;
         });
@@ -285,7 +285,7 @@ public final class ServerState {
 
     // Generic execute that delegates to the pluggable state machine
     public CompletableFuture<MessageServiceOuterClass.ClientReply> executeRequest(MessageServiceOuterClass.ClientRequest request, long seqNum) {
-        logger.info("Executing operation of type: {}", request.getOperation().getOpCase());
+        logger.info("Attempting to execute operation of type: {}", request.getOperation().getOpCase());
         return stateMachineOperator.executeOperation(request, seqNum)
             .thenApply(reply -> {
                 // After operation completes, update timer based on pending operations
@@ -304,7 +304,7 @@ public final class ServerState {
             });
     }
 
-    public Object snapshotStateMachine() {
+    public String snapshotStateMachine() {
         return runSync(() -> stateMachineOperator.snapshot());
     }
 
@@ -341,30 +341,16 @@ public final class ServerState {
 
     // Logs and buffers
 
-    public boolean appendServerMessage(Message msg) {
+    public boolean appendServerMessage(Message msg, int required) {
+        return appendServerMessage(msg, null, required);
+    }
+
+    public boolean appendServerMessage(Message msg, MessageServiceOuterClass.ClientRequest clientRequest, int required) {
         ServerMessage serverMsg = ServerMessage.wrap(msg);
         logger.info("Appending server message: {}", serverMsg.toDetailedString());
         return runSync(() -> {
-            switch(serverMsg.getMessageType()) {
-                case ServerMessage.PRE_PREPARE:
-                    operationLog.addOperation(serverMsg.getSequenceNumber().orElse(-1L), null, OperationStatus.PREPREPARED);
-                break;
-                case ServerMessage.PREPARE:
-                    MessageServiceOuterClass.ClientRequest clientRequest = findClientRequest(serverMsg.getDigest().orElse(null));
-                    operationLog.addOperationOrUpdateStatus(serverMsg.getSequenceNumber().orElse(-1L), clientRequest, OperationStatus.PREPARED);
-                break;
-                case ServerMessage.COMMIT:
-                    MessageServiceOuterClass.ClientRequest clientRequestCommit = findClientRequest(serverMsg.getDigest().orElse(null));
-                    operationLog.addOperationOrUpdateStatus(serverMsg.getSequenceNumber().orElse(-1L), clientRequestCommit, OperationStatus.COMMITTED);
-                break;
-                case ServerMessage.CHECKPOINT:
-                    operationLog.addOperationOrUpdateStatus(serverMsg.getSequenceNumber().orElse(-1L), null, OperationStatus.CHECKPOINTED);
-                break;
-                default:
-                    operationLog.addOperationOrUpdateStatus(serverMsg.getSequenceNumber().orElse(-1L), null, OperationStatus.NONE);
-                break;
-            }
-            return serverMessageTracker.append(serverMsg);
+            addToOperationLog(serverMsg, clientRequest);
+            return serverMessageTracker.append(serverMsg, required);
         });
     }
 
@@ -376,11 +362,45 @@ public final class ServerState {
         return runSync(() -> operationLog.getOperation(sequenceNumber));
     }
 
+    public OperationLog getOperationLog() {
+        return runSync(() -> operationLog);
+    }
+
+    public String printIndexedServerMessages() {
+        return runSync(serverMessageTracker::printIndexedMessages);
+    }
+
+    public void addToOperationLog(ServerMessage serverMsg, MessageServiceOuterClass.ClientRequest clientRequest) {
+        runSync(() -> {
+            switch(serverMsg.getMessageType()) {
+                case ServerMessage.PRE_PREPARE:
+                    operationLog.addOperation(serverMsg.getSequenceNumber().orElse(-1L), clientRequest, OperationStatus.PREPREPARED);
+                    break;
+                case ServerMessage.PREPARE:
+                    MessageServiceOuterClass.ClientRequest clientRequestPrepare = clientRequest;
+                    if (clientRequestPrepare == null) clientRequestPrepare = findClientRequest(serverMsg.getDigest().orElse(null));
+                    operationLog.addOperationOrUpdateStatus(serverMsg.getSequenceNumber().orElse(-1L), clientRequestPrepare, OperationStatus.PREPARED);
+                    break;
+                case ServerMessage.COMMIT:
+                    MessageServiceOuterClass.ClientRequest clientRequestCommit = clientRequest;
+                    if (clientRequestCommit == null) clientRequestCommit = findClientRequest(serverMsg.getDigest().orElse(null));
+                    operationLog.addOperationOrUpdateStatus(serverMsg.getSequenceNumber().orElse(-1L), clientRequestCommit, OperationStatus.COMMITTED);
+                    break;
+                case ServerMessage.CHECKPOINT:
+                    operationLog.updateStatusForAllBefore(serverMsg.getSequenceNumber().orElse(-1L), OperationStatus.CHECKPOINTED);
+                    break;
+                default:
+                    operationLog.addOperationOrUpdateStatus(serverMsg.getSequenceNumber().orElse(-1L), null, OperationStatus.NONE);
+                    break;
+            }
+        });
+    }
+
     public boolean appendClientRequest(Message msg) {
         return runSync(() -> {
-            ByteString digest = ByteString.copyFrom(MessageUtil.generateDigest(msg));
+            String digestString = MessageUtil.digestToString(MessageUtil.generateDigest(msg));
             livenessTimer.startIfNotRunning();
-            return serverMessageTracker.appendWithoutConsensus(ServerMessage.wrap(msg), digest.toStringUtf8());
+            return serverMessageTracker.appendWithoutConsensus(ServerMessage.wrap(msg), digestString);
         });
     }
 
@@ -397,8 +417,8 @@ public final class ServerState {
     // every time a pre-prepare is received, check quorum for matching prepares
     // every time a prepare is received, check quorum for matching prepares and commits
     // every time a commit is received, check quorum for matching commits
-    public boolean checkMessageQuorum(Message message, int quorumSize) {
-        return runSync(() -> serverMessageTracker.checkMessageQuorum(ServerMessage.wrap(message), quorumSize));
+    public boolean checkMessageQuorum(Message message) {
+        return runSync(() -> serverMessageTracker.checkMessageQuorum(ServerMessage.wrap(message)));
     }
 
     public Map<String, ByteString> getQuorumSignatures(String messageType, long viewNumber, long sequenceNumber) {
@@ -416,7 +436,7 @@ public final class ServerState {
     public MessageServiceOuterClass.ClientRequest findClientRequest(ByteString digest) {
         return runSync(() -> {
             if (digest == null) return null;
-            ServerMessage message = serverMessageTracker.findByIndex(digest.toStringUtf8());
+            ServerMessage message = serverMessageTracker.findByIndex(MessageUtil.digestToString(digest.toByteArray()));
             if (message == null) {
                 logger.debug("No message found for digest: {}", digest);
                 return null;
@@ -482,7 +502,7 @@ public final class ServerState {
         });
     }
 
-    public boolean isPrepared(long viewNumber, long sequenceNumber, int quorumSize) {
+    public boolean isPrepared(long viewNumber, long sequenceNumber) {
         return runSync(() -> {
 //            logger.info("Checking if prepared for view {} seq {}", viewNumber, sequenceNumber);
 
@@ -491,8 +511,7 @@ public final class ServerState {
                 return false;
             }
 
-            int quorumSizeExcludingPrePrepare = quorumSize - 1;
-            boolean quorumCheck = serverMessageTracker.checkMessageQuorum(ServerMessage.PREPARE, viewNumber, sequenceNumber, quorumSizeExcludingPrePrepare);
+            boolean quorumCheck = serverMessageTracker.checkMessageQuorum(ServerMessage.PREPARE, viewNumber, sequenceNumber);
             boolean hasAggregatedPrepare = hasAggregatedPrepare(viewNumber, sequenceNumber);
 
             if (quorumCheck || hasAggregatedPrepare) {
@@ -540,17 +559,17 @@ public final class ServerState {
         });
     }
 
-    public boolean isCommitted(long viewNumber, long sequenceNumber, int quorumSize) {
+    public boolean isCommitted(long viewNumber, long sequenceNumber) {
         return runSync(() -> {
             if (!hasPrePrepare(viewNumber, sequenceNumber)) {
                 return false;
             }
 
-            if (!isPrepared(viewNumber, sequenceNumber, quorumSize)) {
+            if (!isPrepared(viewNumber, sequenceNumber)) {
                 return false;
             }
 
-            boolean quorumCheck = serverMessageTracker.checkMessageQuorum(ServerMessage.COMMIT, viewNumber, sequenceNumber, quorumSize);
+            boolean quorumCheck = serverMessageTracker.checkMessageQuorum(ServerMessage.COMMIT, viewNumber, sequenceNumber);
             boolean hasAggregatedCommit = hasAggregatedCommit(viewNumber, sequenceNumber);
 
             if (quorumCheck || hasAggregatedCommit) {
@@ -590,6 +609,11 @@ public final class ServerState {
         return runAsync(this::nextSeq);
     }
 
+    private void resetWatermarks() {
+        latestStableCheckpointSeqNum = 0L;
+        highWatermark = latestStableCheckpointSeqNum + Config.getWatermarkWindow();
+    }
+
     // Reset everything between test sets
     public void reset() {
         runSync(() -> {
@@ -599,11 +623,13 @@ public final class ServerState {
             isFaulty = false;
             seqNum = 0L;
             stateMachineOperator.reset();
+            operationLog.clear();
             replyTimestamps.clear();
             replyCache.clear();
             stableCheckpoints.clear();
             serverMessageTracker.clear();
             outputBuffer.clear();
+            resetWatermarks();
             return null;
         });
     }

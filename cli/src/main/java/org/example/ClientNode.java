@@ -23,9 +23,7 @@ public class ClientNode extends Node {
 
     private final ClientMessageSender sender;
     private final ClientMessageReceiver receiver;
-    private final org.example.consensus.ConsensusMessageTracker<String, MessageServiceOuterClass.OperationResult> messageTracker;
-
-    private static final int MAJORITY_REQUIRED = 3;
+    private final ConsensusMessageTracker<String, MessageServiceOuterClass.OperationResult> messageTracker;
 
     public ClientNode(String nodeId) {
         super(nodeId);
@@ -112,7 +110,7 @@ public class ClientNode extends Node {
 
         // Await consensus
         try {
-            Message consensus = messageTracker.awaitConsensus(requestId, Duration.ofMillis(getClientRequestTimeoutMillis()), MAJORITY_REQUIRED);
+            Message consensus = messageTracker.awaitConsensus(requestId, Duration.ofMillis(getClientRequestTimeoutMillis()), majorityCountForClient());
             handleOperationResult((MessageServiceOuterClass.ClientReply) consensus);
             return true;
         } catch (TimeoutException te) {
@@ -193,15 +191,20 @@ public class ClientNode extends Node {
         boolean quorumReached = messageTracker.recordMessageAndCheckQuorum(
                 requestId,
                 reply,
-                majorityCount());
+                majorityCountForClient());
 
         if (quorumReached) {
             logger.info("Consensus reached for request {} after receiving reply from {} (quorum={})",
-                    requestId, reply.getServerId(), majorityCount());
+                    requestId, reply.getServerId(), majorityCountForClient());
         } else {
             logger.info("Recorded ClientReply from {} for request {}, waiting for more replies (need quorum={})",
-                    reply.getServerId(), requestId, majorityCount());
+                    reply.getServerId(), requestId, majorityCountForClient());
         }
+    }
+
+    public void reset() {
+        this.messageTracker.clear();
+        updatePrimary(1L); // Initial view
     }
 
     public void start() {

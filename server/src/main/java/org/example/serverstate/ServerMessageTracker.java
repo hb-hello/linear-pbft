@@ -40,7 +40,7 @@ public class ServerMessageTracker {
      * @param message The server message to append
      * @return true if the message was successfully appended, false if it was a duplicate and skipped
      */
-    public boolean append(ServerMessage message) {
+    public boolean append(ServerMessage message, int required) {
         String messageIndexWithSender = message.getMessageIndexWithSender();
         String messageIndex = message.getMessageIndex();
 
@@ -55,7 +55,7 @@ public class ServerMessageTracker {
         index.put(messageIndexWithSender, message);
 
         // Record message in consensus tracker (using messageIndex without sender)
-        consensusTracker.recordMessage(messageIndex, message);
+        if(required > 0) consensusTracker.recordMessage(messageIndex, message, required);
 
         logger.info("Appended and indexed message: {}, messageIndex={}",
                 messageIndexWithSender, messageIndex);
@@ -87,21 +87,21 @@ public class ServerMessageTracker {
      * @param quorumSize    The required quorum size
      * @return true if quorum is met, false otherwise
      */
-    public boolean checkMessageQuorum(ServerMessage serverMessage, int quorumSize) {
+    public boolean checkMessageQuorum(ServerMessage serverMessage) {
         String messageIndex = serverMessage.getMessageIndex();
-        return checkMessageQuorum(messageIndex, quorumSize);
+        return checkMessageQuorum(messageIndex);
     }
 
-    public boolean checkMessageQuorum(String messageType, long viewNumber, long sequenceNumber, int quorumSize) {
+    public boolean checkMessageQuorum(String messageType, long viewNumber, long sequenceNumber) {
         String messageIndex = String.format("%s:%d:%d", messageType, viewNumber, sequenceNumber);
-        return checkMessageQuorum(messageIndex, quorumSize);
+        return checkMessageQuorum(messageIndex);
     }
 
-    public boolean checkMessageQuorum(String messageIndex, int quorumSize) {
+    public boolean checkMessageQuorum(String messageIndex) {
         // Use consensusTracker to check if quorum is reached
-        boolean met = consensusTracker.checkMessageQuorum(messageIndex, quorumSize);
+        boolean met = consensusTracker.checkMessageQuorum(messageIndex);
         logger.info("Quorum check for {} : required={}, met={}",
-                messageIndex, quorumSize, met);
+                messageIndex, consensusTracker.getQuorumRequired(messageIndex), met);
         return met;
     }
 
@@ -157,7 +157,7 @@ public class ServerMessageTracker {
 
     public Map<String, ByteString> checkQuorumAndGetSignatures(String messageType, long viewNumber, long sequenceNumber, int quorumSize) {
         String messageIndex = String.format("%s:%d:%d", messageType, viewNumber, sequenceNumber);
-        if (checkMessageQuorum(messageIndex, quorumSize)) {
+        if (checkMessageQuorum(messageIndex)) {
             return getQuorumSignatures(messageIndex);
         } else {
             return Collections.emptyMap();
@@ -166,7 +166,7 @@ public class ServerMessageTracker {
 
     public Map<String, ByteString> checkQuorumAndGetSignatures(ServerMessage serverMessage, int quorumSize) {
         String messageIndex = serverMessage.getMessageIndex();
-        if (checkMessageQuorum(messageIndex, quorumSize)) {
+        if (checkMessageQuorum(messageIndex)) {
             return getQuorumSignatures(messageIndex);
         } else {
             return Collections.emptyMap();
@@ -213,6 +213,20 @@ public class ServerMessageTracker {
      */
     public List<ServerMessage> getAllMessages() {
         return new ArrayList<>(allMessages);
+    }
+
+    public Map<String, ServerMessage> getIndexedMessages() {
+        return new HashMap<>(index);
+    }
+
+    public String printIndexedMessages() {
+        StringBuilder sb = new StringBuilder();
+        for (Map.Entry<String, ServerMessage> entry : index.entrySet()) {
+            sb.append("Index: ").append(entry.getKey())
+              .append(", Message: ").append(entry.getValue().toDetailedString())
+              .append("\n");
+        }
+        return sb.toString();
     }
 
     public List<ServerMessage> getMessagesByType(String messageType) {

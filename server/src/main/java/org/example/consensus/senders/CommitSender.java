@@ -44,7 +44,7 @@ public class CommitSender extends MessageSender {
                 (org.example.MessageServiceOuterClass.CommitMessage) auth.sign(commitMsg);
 
         // Append our own signed Commit to state (we count our own vote in the quorum)
-        if (!state.appendServerMessage(signedCommitMsg)) {
+        if (!state.appendServerMessage(signedCommitMsg, quorumSize)) {
             logger.warn("Failed to append Commit message to state for view {} seq {}, likely due to duplicate check", viewNumber, sequenceNumber);
             return;
         };
@@ -83,7 +83,7 @@ public class CommitSender extends MessageSender {
         MessageServiceOuterClass.CommitMessage signedCommitMsg =
                 (MessageServiceOuterClass.CommitMessage) auth.signWithAggregateTss(aggregatedCommitMsg, commitSignatures);
 
-        if (!state.appendServerMessage(signedCommitMsg)) {
+        if (!state.appendServerMessage(signedCommitMsg, quorumSize)) {
             logger.warn("Failed to append Aggregated Commit message to state for view {} seq {}, likely due to duplicate check", viewNumber, sequenceNumber);
             return;
         };

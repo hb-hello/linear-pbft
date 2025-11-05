@@ -4,6 +4,7 @@ import com.google.protobuf.ByteString;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.example.MessageServiceOuterClass;
+import org.example.ServerNode;
 import org.example.crypto.MessageAuthenticator;
 import org.example.messaging.CommunicationLogger;
 import org.example.messaging.MessageSender;
@@ -40,7 +41,7 @@ public class PrepareSender extends MessageSender {
         MessageServiceOuterClass.PrepareMessage signedPrepareMsg =
                 (MessageServiceOuterClass.PrepareMessage) auth.sign(prepareMsg);
 
-        if (!state.appendServerMessage(signedPrepareMsg)) {
+        if (!state.appendServerMessage(signedPrepareMsg, ServerNode.majorityCount())) {
             logger.warn("Failed to append Prepare message to state for view {} seq {}, likely due to duplicate check", viewNumber, sequenceNumber);
             return;
         };
@@ -86,7 +87,7 @@ public class PrepareSender extends MessageSender {
         logger.info("Signed with aggregated signature for Aggregated Prepare for view {} seq {}, isAggregated is set to: {}",
                 viewNumber, sequenceNumber, signedPrepareMsg.getIsAggregated());
 
-        if (!state.appendServerMessage(signedPrepareMsg)) {
+        if (!state.appendServerMessage(signedPrepareMsg, ServerNode.majorityCount())) {
             logger.warn("Failed to append Aggregated Prepare message to state for view {} seq {}, likely due to duplicate check", viewNumber, sequenceNumber);
             return;
         };

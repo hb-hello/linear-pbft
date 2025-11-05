@@ -71,16 +71,83 @@ public class ServerManager {
 
     public static void printDB() {
         for (String serverId : Config.getServerIds()) {
-            System.out.println("Database for server : " + serverId);
+//            Request DB from server and print as a table row
             try {
                 MessageServiceOuterClass.CLIResponse response =
                         stubManager.getBlockingStub(serverId).getDB(Empty.getDefaultInstance());
-                System.out.println(response.getCliResponse());
+                printDBAsTable(serverId, response);
             } catch (Exception e) {
                 throw new RuntimeException(e);
             }
-            System.out.println();
         }
+    }
+
+    /**
+     * Print the provided server's CLIResponse in a two-column ASCII table.
+     * First column: Server ID
+     * Second column: Response (may wrap if long or contain newlines)
+     */
+    public static void printDBAsTable(String serverId, MessageServiceOuterClass.CLIResponse response) {
+        String col1 = "Server ID";
+        String col2 = "Response";
+        String responseStr = response == null ? "" : response.getCliResponse();
+
+        int width1 = Math.max(col1.length(), serverId.length());
+        // Determine the longest line in the response (cap to avoid extremely wide tables)
+        int maxLineLen = 0;
+        String[] respLines = responseStr.split("\\r?\\n");
+        for (String line : respLines) {
+            if (line.length() > maxLineLen) maxLineLen = line.length();
+        }
+        int cap = 120; // cap the response column width to 120 characters
+        int width2 = Math.max(col2.length(), Math.min(maxLineLen, cap));
+
+        // Print header
+        printRowBorder(width1, width2);
+        System.out.printf("| %s | %s |%n", padRight(col1, width1), padRight(col2, width2));
+        printRowBorder(width1, width2);
+
+        // Print response content, wrapping lines longer than width2
+        boolean firstRow = true;
+        for (String line : respLines) {
+            if (line.isEmpty()) {
+                System.out.printf("| %s | %s |%n", padRight(firstRow ? serverId : "", width1), padRight("", width2));
+                firstRow = false;
+                continue;
+            }
+            int start = 0;
+            while (start < line.length()) {
+                int end = Math.min(start + width2, line.length());
+                String chunk = line.substring(start, end);
+                System.out.printf("| %s | %s |%n", padRight(firstRow ? serverId : "", width1), padRight(chunk, width2));
+                start = end;
+                firstRow = false;
+            }
+        }
+
+        // If response was empty, still print a row with the server id
+        if (respLines.length == 0) {
+            System.out.printf("| %s | %s |%n", padRight(serverId, width1), padRight("", width2));
+        }
+
+        printRowBorder(width1, width2);
+        System.out.println();
+    }
+
+    private static void printRowBorder(int w1, int w2) {
+        System.out.print("+");
+        for (int i = 0; i < w1 + 2; i++) System.out.print("-");
+        System.out.print("+");
+        for (int i = 0; i < w2 + 2; i++) System.out.print("-");
+        System.out.println("+");
+    }
+
+    private static String padRight(String s, int n) {
+        if (s == null) s = "";
+        if (s.length() >= n) return s;
+        StringBuilder sb = new StringBuilder(s);
+        while (sb.length() < n) sb.append(' ');
+        return sb.toString();
     }
 
     public static void printStatus(int sequenceNumber) {
@@ -112,6 +179,17 @@ public class ServerManager {
                 throw new RuntimeException(e);
             }
             System.out.println();
+        }
+    }
+
+    public static void printOperationLog(String serverId) {
+        try {
+            MessageServiceOuterClass.CLIResponse response =
+                    stubManager.getBlockingStub(serverId).getOperationLog(Empty.getDefaultInstance());
+            System.out.println("Operation Log for server : " + serverId);
+            System.out.println(response.getCliResponse());
+        } catch (Exception e) {
+            throw new RuntimeException(e);
         }
     }
 

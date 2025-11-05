@@ -1,7 +1,6 @@
 package org.example.messaging;
 
 import com.google.protobuf.Empty;
-import com.google.protobuf.Message;
 import io.grpc.stub.StreamObserver;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -179,14 +178,14 @@ public class ServerMessageService extends MessageServiceGrpc.MessageServiceImplB
         responseObserver.onCompleted();
     }
 
-//    @Override
-//    public void getDB(Empty request, StreamObserver<MessageServiceOuterClass.CLIResponse> responseObserver) {
-//        String stateString = CLILogging.formatState(node.getClientState());
-//        MessageServiceOuterClass.CLIResponse response = MessageServiceOuterClass.CLIResponse.newBuilder().setCliResponse(stateString).build();
-//        responseObserver.onNext(response);
-//        responseObserver.onCompleted();
-//    }
-//
+    @Override
+    public void getDB(Empty request, StreamObserver<MessageServiceOuterClass.CLIResponse> responseObserver) {
+        String stateString = serverNode.getDB();
+        MessageServiceOuterClass.CLIResponse response = MessageServiceOuterClass.CLIResponse.newBuilder().setCliResponse(stateString).build();
+        responseObserver.onNext(response);
+        responseObserver.onCompleted();
+    }
+
     @Override
     public void getStatus(MessageServiceOuterClass.SequenceNumber request, StreamObserver<MessageServiceOuterClass.CLIResponse> responseObserver) {
         String statusString = mapStatus(serverNode.getOperationStatus(request.getSequenceNumber())) + " for operation : " + serverNode.getOperation(request.getSequenceNumber());
@@ -202,5 +201,15 @@ public class ServerMessageService extends MessageServiceGrpc.MessageServiceImplB
 //        responseObserver.onNext(response);
 //        responseObserver.onCompleted();
 //    }
+
+    @Override
+    public void getOperationLog(Empty request, StreamObserver<MessageServiceOuterClass.CLIResponse> responseObserver) {
+        logger.info("Received request for operation log");
+        String operationLogString = serverNode.printOperationLog();
+//        logger.info("Sending operation log:\n{}", operationLogString);
+        MessageServiceOuterClass.CLIResponse response = MessageServiceOuterClass.CLIResponse.newBuilder().setCliResponse(operationLogString).build();
+        responseObserver.onNext(response);
+        responseObserver.onCompleted();
+    }
 
 }

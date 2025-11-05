@@ -5,7 +5,6 @@ import org.apache.logging.log4j.Logger;
 import org.example.crypto.MessageAuthenticator;
 import org.example.messaging.CommunicationLogger;
 import org.example.messaging.MessageReceiver;
-import org.example.messaging.MessageSender;
 import org.example.config.Config;
 
 import java.util.concurrent.ExecutionException;
@@ -17,6 +16,8 @@ import static org.example.config.Config.getServerIdForNumber;
 public class Node {
 
     private static final Logger logger = LogManager.getLogger(Node.class);
+
+    protected static int MAX_FAULTY_NODES = 2;
 
     protected final String nodeId;
 
@@ -53,9 +54,8 @@ public class Node {
     /**
      * Simple majority threshold (n/2 + 1).
      */
-    protected int majorityCount() {
-        int n = getServerCount();
-        return (n / 2) + 1;
+    protected int majorityCountForClient() {
+        return MAX_FAULTY_NODES + 1;
     }
 
     /**

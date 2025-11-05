@@ -156,7 +156,7 @@ class ServerStateTest {
                 .setClientId("test")
                 .setTimestamp(123L)
                 .build();
-        state.appendServerMessage(dummyRequest);
+        state.appendServerMessage(dummyRequest, 0);
         state.enqueueOutbound("out");
         assertEquals(1, state.outboundQueue().size(), "Outbound queue should have an item before reset");
 
@@ -328,12 +328,12 @@ class ServerStateTest {
         int quorumSize = 3;
 
         // Add some Prepares but no PrePrepare
-        addPrepare(state, view, seq, "digest1", "n2");
-        addPrepare(state, view, seq, "digest1", "n3");
-        addPrepare(state, view, seq, "digest1", "n4");
+        addPrepare(state, view, seq, "digest1", "n2", quorumSize);
+        addPrepare(state, view, seq, "digest1", "n3", quorumSize);
+        addPrepare(state, view, seq, "digest1", "n4", quorumSize);
 
         // Should return false without PrePrepare
-        assertFalse(state.isPrepared(view, seq, quorumSize),
+        assertFalse(state.isPrepared(view, seq),
                 "isPrepared should return false without PrePrepare");
     }
 
@@ -345,10 +345,10 @@ class ServerStateTest {
         int quorumSize = 3;
 
         // Add only PrePrepare
-        addPrePrepare(state, view, seq, "digest1");
+        addPrePrepare(state, view, seq, "digest1", quorumSize);
 
         // Should return false without enough Prepares
-        assertFalse(state.isPrepared(view, seq, quorumSize),
+        assertFalse(state.isPrepared(view, seq),
                 "isPrepared should return false with PrePrepare but no Prepares");
     }
 
@@ -360,15 +360,15 @@ class ServerStateTest {
         int quorumSize = 3;
 
         // Add PrePrepare
-        addPrePrepare(state, view, seq, "digest1");
+        addPrePrepare(state, view, seq, "digest1", 0);
 
         // Add Prepares to reach quorum (need 3, including PrePrepare counts as 1)
-        addPrepare(state, view, seq, "digest1", "n2");
-        addPrepare(state, view, seq, "digest1", "n3");
-        addPrepare(state, view, seq, "digest1", "n4");
+        addPrepare(state, view, seq, "digest1", "n2", quorumSize);
+        addPrepare(state, view, seq, "digest1", "n3", quorumSize);
+        addPrepare(state, view, seq, "digest1", "n4", quorumSize);
 
         // Should return true with quorum
-        assertTrue(state.isPrepared(view, seq, quorumSize),
+        assertTrue(state.isPrepared(view, seq),
                 "isPrepared should return true with PrePrepare and sufficient Prepares");
     }
 
@@ -380,14 +380,14 @@ class ServerStateTest {
         int quorumSize = 5; // Need 5 total
 
         // Add PrePrepare
-        addPrePrepare(state, view, seq, "digest1");
+        addPrePrepare(state, view, seq, "digest1", 0);
 
-        // Add only 2 Prepares (total 3, need 5)
-        addPrepare(state, view, seq, "digest1", "n2");
-        addPrepare(state, view, seq, "digest1", "n3");
+        // Add only 2 Prepares (total 2, need 5)
+        addPrepare(state, view, seq, "digest1", "n2", quorumSize);
+        addPrepare(state, view, seq, "digest1", "n3", quorumSize);
 
         // Should return false
-        assertFalse(state.isPrepared(view, seq, quorumSize),
+        assertFalse(state.isPrepared(view, seq),
                 "isPrepared should return false with insufficient Prepares");
     }
 
@@ -399,14 +399,15 @@ class ServerStateTest {
         int quorumSize = 3;
 
         // Add PrePrepare
-        addPrePrepare(state, view, seq, "digest1");
+        addPrePrepare(state, view, seq, "digest1", 0);
 
         // Add exactly enough Prepares to meet quorum
-        addPrepare(state, view, seq, "digest1", "n2");
-        addPrepare(state, view, seq, "digest1", "n3");
+        addPrepare(state, view, seq, "digest1", "n2", quorumSize);
+        addPrepare(state, view, seq, "digest1", "n3", quorumSize);
+        addPrepare(state, view, seq, "digest1", "n4", quorumSize);
 
         // Should return true with exact quorum
-        assertTrue(state.isPrepared(view, seq, quorumSize),
+        assertTrue(state.isPrepared(view, seq),
                 "isPrepared should return true with exact quorum");
     }
 
@@ -419,12 +420,12 @@ class ServerStateTest {
         int quorumSize = 3;
 
         // Add PrePrepare and Prepares for view 1
-        addPrePrepare(state, view1, seq, "digest1");
-        addPrepare(state, view1, seq, "digest1", "n2");
-        addPrepare(state, view1, seq, "digest1", "n3");
+        addPrePrepare(state, view1, seq, "digest1", 0);
+        addPrepare(state, view1, seq, "digest1", "n2", quorumSize);
+        addPrepare(state, view1, seq, "digest1", "n3", quorumSize);
 
         // Check isPrepared for view 2 (different view)
-        assertFalse(state.isPrepared(view2, seq, quorumSize),
+        assertFalse(state.isPrepared(view2, seq),
                 "isPrepared should return false for different view number");
     }
 
@@ -437,12 +438,12 @@ class ServerStateTest {
         int quorumSize = 3;
 
         // Add PrePrepare and Prepares for seq 10
-        addPrePrepare(state, view, seq1, "digest1");
-        addPrepare(state, view, seq1, "digest1", "n2");
-        addPrepare(state, view, seq1, "digest1", "n3");
+        addPrePrepare(state, view, seq1, "digest1", 0);
+        addPrepare(state, view, seq1, "digest1", "n2", quorumSize);
+        addPrepare(state, view, seq1, "digest1", "n3", quorumSize);
 
         // Check isPrepared for seq 20 (different sequence)
-        assertFalse(state.isPrepared(view, seq2, quorumSize),
+        assertFalse(state.isPrepared(view, seq2),
                 "isPrepared should return false for different sequence number");
     }
 
@@ -456,13 +457,13 @@ class ServerStateTest {
         int quorumSize = 3;
 
         // Add Prepares and Commits but no PrePrepare
-        addPrepare(state, view, seq, "digest1", "n2");
-        addPrepare(state, view, seq, "digest1", "n3");
-        addCommit(state, view, seq, "digest1", "n2");
-        addCommit(state, view, seq, "digest1", "n3");
+        addPrepare(state, view, seq, "digest1", "n2", quorumSize);
+        addPrepare(state, view, seq, "digest1", "n3", quorumSize);
+        addCommit(state, view, seq, "digest1", "n2", quorumSize);
+        addCommit(state, view, seq, "digest1", "n3", quorumSize);
 
         // Should return false without PrePrepare
-        assertFalse(state.isCommitted(view, seq, quorumSize),
+        assertFalse(state.isCommitted(view, seq),
                 "isCommitted should return false without PrePrepare");
     }
 
@@ -474,16 +475,16 @@ class ServerStateTest {
         int quorumSize = 3;
 
         // Add PrePrepare but not enough Prepares
-        addPrePrepare(state, view, seq, "digest1");
-        addPrepare(state, view, seq, "digest1", "n2");
+        addPrePrepare(state, view, seq, "digest1", 0);
+        addPrepare(state, view, seq, "digest1", "n2", quorumSize);
 
         // Add Commits
-        addCommit(state, view, seq, "digest1", "n2");
-        addCommit(state, view, seq, "digest1", "n3");
-        addCommit(state, view, seq, "digest1", "n4");
+        addCommit(state, view, seq, "digest1", "n2", quorumSize);
+        addCommit(state, view, seq, "digest1", "n3", quorumSize);
+        addCommit(state, view, seq, "digest1", "n4", quorumSize);
 
         // Should return false if not prepared
-        assertFalse(state.isCommitted(view, seq, quorumSize),
+        assertFalse(state.isCommitted(view, seq),
                 "isCommitted should return false if not prepared");
     }
 
@@ -495,15 +496,15 @@ class ServerStateTest {
         int quorumSize = 3;
 
         // Add PrePrepare and Prepares (prepared state)
-        addPrePrepare(state, view, seq, "digest1");
-        addPrepare(state, view, seq, "digest1", "n2");
-        addPrepare(state, view, seq, "digest1", "n3");
-        addPrepare(state, view, seq, "digest1", "n4");
+        addPrePrepare(state, view, seq, "digest1", 0);
+        addPrepare(state, view, seq, "digest1", "n2", quorumSize);
+        addPrepare(state, view, seq, "digest1", "n3", quorumSize);
+        addPrepare(state, view, seq, "digest1", "n4", quorumSize);
 
         // No Commits added
 
         // Should return false without Commits
-        assertFalse(state.isCommitted(view, seq, quorumSize),
+        assertFalse(state.isCommitted(view, seq),
                 "isCommitted should return false with prepared but no Commits");
     }
 
@@ -515,20 +516,20 @@ class ServerStateTest {
         int quorumSize = 3;
 
         // Add PrePrepare
-        addPrePrepare(state, view, seq, "digest1");
+        addPrePrepare(state, view, seq, "digest1", 0);
 
         // Add Prepares to reach quorum
-        addPrepare(state, view, seq, "digest1", "n2");
-        addPrepare(state, view, seq, "digest1", "n3");
-        addPrepare(state, view, seq, "digest1", "n4");
+        addPrepare(state, view, seq, "digest1", "n2", quorumSize);
+        addPrepare(state, view, seq, "digest1", "n3", quorumSize);
+        addPrepare(state, view, seq, "digest1", "n4", quorumSize);
 
         // Add Commits to reach quorum
-        addCommit(state, view, seq, "digest1", "n2");
-        addCommit(state, view, seq, "digest1", "n3");
-        addCommit(state, view, seq, "digest1", "n4");
+        addCommit(state, view, seq, "digest1", "n2", quorumSize);
+        addCommit(state, view, seq, "digest1", "n3", quorumSize);
+        addCommit(state, view, seq, "digest1", "n4", quorumSize);
 
         // Should return true
-        assertTrue(state.isCommitted(view, seq, quorumSize),
+        assertTrue(state.isCommitted(view, seq),
                 "isCommitted should return true with prepared and sufficient Commits");
     }
 
@@ -540,18 +541,19 @@ class ServerStateTest {
         int quorumSize = 5;
 
         // Add PrePrepare and Prepares (prepared)
-        addPrePrepare(state, view, seq, "digest1");
-        addPrepare(state, view, seq, "digest1", "n2");
-        addPrepare(state, view, seq, "digest1", "n3");
-        addPrepare(state, view, seq, "digest1", "n4");
-        addPrepare(state, view, seq, "digest1", "n5");
+        addPrePrepare(state, view, seq, "digest1", 0);
+        addPrepare(state, view, seq, "digest1", "n2", quorumSize);
+        addPrepare(state, view, seq, "digest1", "n3", quorumSize);
+        addPrepare(state, view, seq, "digest1", "n4", quorumSize);
+        addPrepare(state, view, seq, "digest1", "n5", quorumSize);
+        addPrepare(state, view, seq, "digest1", "n6", quorumSize);
 
         // Add only 2 Commits (need 5)
-        addCommit(state, view, seq, "digest1", "n2");
-        addCommit(state, view, seq, "digest1", "n3");
+        addCommit(state, view, seq, "digest1", "n2", quorumSize);
+        addCommit(state, view, seq, "digest1", "n3", quorumSize);
 
         // Should return false
-        assertFalse(state.isCommitted(view, seq, quorumSize),
+        assertFalse(state.isCommitted(view, seq),
                 "isCommitted should return false with insufficient Commits");
     }
 
@@ -563,19 +565,20 @@ class ServerStateTest {
         int quorumSize = 3;
 
         // Add PrePrepare
-        addPrePrepare(state, view, seq, "digest1");
+        addPrePrepare(state, view, seq, "digest1", 0);
 
         // Add Prepares to meet quorum
-        addPrepare(state, view, seq, "digest1", "n2");
-        addPrepare(state, view, seq, "digest1", "n3");
+        addPrepare(state, view, seq, "digest1", "n2", quorumSize);
+        addPrepare(state, view, seq, "digest1", "n3", quorumSize);
+        addPrepare(state, view, seq, "digest1", "n4", quorumSize);
 
         // Add exact quorum of Commits
-        addCommit(state, view, seq, "digest1", "n2");
-        addCommit(state, view, seq, "digest1", "n3");
-        addCommit(state, view, seq, "digest1", "n1");
+        addCommit(state, view, seq, "digest1", "n2", quorumSize);
+        addCommit(state, view, seq, "digest1", "n3", quorumSize);
+        addCommit(state, view, seq, "digest1", "n1", quorumSize);
 
         // Should return true
-        assertTrue(state.isCommitted(view, seq, quorumSize),
+        assertTrue(state.isCommitted(view, seq),
                 "isCommitted should return true with exact quorum");
     }
 
@@ -588,14 +591,14 @@ class ServerStateTest {
         int quorumSize = 3;
 
         // Add full consensus for view 1
-        addPrePrepare(state, view1, seq, "digest1");
-        addPrepare(state, view1, seq, "digest1", "n2");
-        addPrepare(state, view1, seq, "digest1", "n3");
-        addCommit(state, view1, seq, "digest1", "n2");
-        addCommit(state, view1, seq, "digest1", "n3");
+        addPrePrepare(state, view1, seq, "digest1", 0);
+        addPrepare(state, view1, seq, "digest1", "n2", quorumSize);
+        addPrepare(state, view1, seq, "digest1", "n3", quorumSize);
+        addCommit(state, view1, seq, "digest1", "n2", quorumSize);
+        addCommit(state, view1, seq, "digest1", "n3", quorumSize);
 
         // Check isCommitted for view 2
-        assertFalse(state.isCommitted(view2, seq, quorumSize),
+        assertFalse(state.isCommitted(view2, seq),
                 "isCommitted should return false for different view number");
     }
 
@@ -606,32 +609,34 @@ class ServerStateTest {
         int quorumSize = 3;
 
         // Fully commit seq 10
-        addPrePrepare(state, view, 10L, "digest1");
-        addPrepare(state, view, 10L, "digest1", "n2");
-        addPrepare(state, view, 10L, "digest1", "n3");
-        addCommit(state, view, 10L, "digest1", "n1");
-        addCommit(state, view, 10L, "digest1", "n2");
-        addCommit(state, view, 10L, "digest1", "n3");
+        addPrePrepare(state, view, 10L, "digest1", 0);
+        addPrepare(state, view, 10L, "digest1", "n2", quorumSize);
+        addPrepare(state, view, 10L, "digest1", "n3", quorumSize);
+        addPrepare(state, view, 10L, "digest1", "n4", quorumSize);
+        addCommit(state, view, 10L, "digest1", "n1", quorumSize);
+        addCommit(state, view, 10L, "digest1", "n2", quorumSize);
+        addCommit(state, view, 10L, "digest1", "n3", quorumSize);
 
         // Only prepare seq 20 (not commit)
-        addPrePrepare(state, view, 20L, "digest2");
-        addPrepare(state, view, 20L, "digest2", "n2");
-        addPrepare(state, view, 20L, "digest2", "n3");
+        addPrePrepare(state, view, 20L, "digest2", 0);
+        addPrepare(state, view, 20L, "digest2", "n2", quorumSize);
+        addPrepare(state, view, 20L, "digest2", "n3", quorumSize);
+        addPrepare(state, view, 20L, "digest2", "n4", quorumSize);
 
         // Seq 10 should be committed
-        assertTrue(state.isCommitted(view, 10L, quorumSize),
+        assertTrue(state.isCommitted(view, 10L),
                 "Seq 10 should be committed");
 
         // Seq 20 should be prepared but not committed
-        assertTrue(state.isPrepared(view, 20L, quorumSize),
+        assertTrue(state.isPrepared(view, 20L),
                 "Seq 20 should be prepared");
-        assertFalse(state.isCommitted(view, 20L, quorumSize),
+        assertFalse(state.isCommitted(view, 20L),
                 "Seq 20 should not be committed");
     }
 
     // ===== Helper Methods =====
 
-    private void addPrePrepare(ServerState state, long view, long seq, String digest) {
+    private void addPrePrepare(ServerState state, long view, long seq, String digest, int quorumSize) {
         MessageServiceOuterClass.PrePrepareMessage prePrepare =
                 MessageServiceOuterClass.PrePrepareMessage.newBuilder()
                         .setViewNumber(view)
@@ -640,10 +645,10 @@ class ServerStateTest {
                         .setSignerId(state.getPrimaryServerId())
                         .setSignature(com.google.protobuf.ByteString.copyFromUtf8("sig-primary"))
                         .build();
-        state.appendServerMessage(prePrepare);
+        state.appendServerMessage(prePrepare, quorumSize);
     }
 
-    private void addPrepare(ServerState state, long view, long seq, String digest, String signerId) {
+    private void addPrepare(ServerState state, long view, long seq, String digest, String signerId, int quorumSize) {
         MessageServiceOuterClass.PrepareMessage prepare =
                 MessageServiceOuterClass.PrepareMessage.newBuilder()
                         .setViewNumber(view)
@@ -652,10 +657,10 @@ class ServerStateTest {
                         .setSignerId(signerId)
                         .setSignature(com.google.protobuf.ByteString.copyFromUtf8("sig-" + signerId))
                         .build();
-        state.appendServerMessage(prepare);
+        state.appendServerMessage(prepare, quorumSize);
     }
 
-    private void addCommit(ServerState state, long view, long seq, String digest, String signerId) {
+    private void addCommit(ServerState state, long view, long seq, String digest, String signerId, int quorumSize) {
         MessageServiceOuterClass.CommitMessage commit =
                 MessageServiceOuterClass.CommitMessage.newBuilder()
                         .setViewNumber(view)
@@ -664,6 +669,6 @@ class ServerStateTest {
                         .setSignerId(signerId)
                         .setSignature(com.google.protobuf.ByteString.copyFromUtf8("sig-" + signerId))
                         .build();
-        state.appendServerMessage(commit);
+        state.appendServerMessage(commit, quorumSize);
     }
 }

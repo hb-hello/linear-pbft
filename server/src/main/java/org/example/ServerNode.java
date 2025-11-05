@@ -6,7 +6,6 @@ import org.example.config.Config;
 import org.example.consensus.handlers.*;
 import org.example.consensus.senders.*;
 import org.example.messaging.ServerMessageReceiver;
-import org.example.serverstate.OperationLogEntry;
 import org.example.serverstate.OperationStatus;
 import org.example.serverstate.ServerState;
 
@@ -14,7 +13,7 @@ public class ServerNode extends Node {
 
     private static final Logger logger = LogManager.getLogger(ServerNode.class);
 
-    private final int MAJORITY_COUNT = 5;
+    private final int MAJORITY_COUNT = majorityCount();
     private final int OTHER_SERVER_COUNT = 6;
     private final long REQUEST_TIMEOUT_MILLIS = 1000;
 
@@ -80,6 +79,10 @@ public class ServerNode extends Node {
         state.reset();
     }
 
+    public static int majorityCount() {
+        return 2 * MAX_FAULTY_NODES + 1;
+    }
+
     public void handleClientRequest(MessageServiceOuterClass.ClientRequest request) {
         executorManager.submitMessageProcessing(() -> clientRequestHandler.handle(request));
     }
@@ -112,8 +115,16 @@ public class ServerNode extends Node {
         return state.getOperation(sequenceNumber).toString();
     }
 
+    public String printOperationLog() {
+        return state.getOperationLog().toString() + "\n" + state.printIndexedServerMessages();
+    }
+
     public OperationStatus getOperationStatus(long sequenceNumber) {
         return state.getOperationStatus(sequenceNumber);
+    }
+
+    public String getDB() {
+        return state.snapshotStateMachine();
     }
 
     // Helper method used as callback for StateMachineOperator

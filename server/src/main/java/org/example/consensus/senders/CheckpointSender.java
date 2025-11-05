@@ -4,6 +4,7 @@ import com.google.protobuf.ByteString;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.example.MessageServiceOuterClass;
+import org.example.ServerNode;
 import org.example.consensus.Checkpoint;
 import org.example.crypto.MessageAuthenticator;
 import org.example.messaging.CommunicationLogger;
@@ -53,7 +54,7 @@ public class CheckpointSender extends MessageSender {
         MessageServiceOuterClass.CheckpointMessage signedCheckpointMsg =
                 (MessageServiceOuterClass.CheckpointMessage) auth.sign(checkpointMsg);
 
-        if (!state.appendServerMessage(signedCheckpointMsg)) {
+        if (!state.appendServerMessage(signedCheckpointMsg, ServerNode.majorityCount())) {
             logger.warn("Failed to append Checkpoint message to state for view {} seq {}, likely due to duplicate check", viewNumber, sequenceNumber);
             return;
         };

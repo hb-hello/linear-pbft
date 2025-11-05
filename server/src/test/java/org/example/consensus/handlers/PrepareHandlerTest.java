@@ -89,7 +89,7 @@ class PrepareHandlerTest {
                 .setSignerId(state.getPrimaryServerId())
                 .setSignature(ByteString.copyFromUtf8("sig-primary"))
                 .build();
-        state.appendServerMessage(prePrepare);
+        state.appendServerMessage(prePrepare, 0);
     }
 
     @Test

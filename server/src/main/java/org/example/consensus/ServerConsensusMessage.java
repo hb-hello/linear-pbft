@@ -24,9 +24,10 @@ public class ServerConsensusMessage<V> extends ConsensusMessage<String, V> {
      * @param requestId      the unique request identifier (typically from ServerMessage.getMessageIndex())
      * @param valueExtractor function to extract the value key from a ServerMessage for grouping responses
      */
-    public ServerConsensusMessage(String requestId, Function<ServerMessage, V> valueExtractor) {
+    public ServerConsensusMessage(String requestId, int required, Function<ServerMessage, V> valueExtractor) {
         super(requestId,
                 // Extract request ID using ServerMessage.getMessageIndex()
+                required,
                 msg -> ServerMessage.wrap(msg).getMessageIndex(),
                 // Extract responder ID using signer_id field
                 msg -> ServerMessage.wrap(msg).getSenderId().orElse("unknown"),
