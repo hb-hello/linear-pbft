@@ -64,13 +64,13 @@ public class ConsensusMessage<K, V> {
             return; // duplicate from same responder
         }
         V value = valueExtractor.apply(reply);
-        System.out.println("DEBUG: Request " + requestId + " - adding reply from " + responderId + " with value: " + value + " (hashCode=" + (value != null ? value.hashCode() : "null") + ")");
+//        System.out.println("DEBUG: Request " + requestId + " - adding reply from " + responderId + " with value: " + value + " (hashCode=" + (value != null ? value.hashCode() : "null") + ")");
         representative.putIfAbsent(value, reply);
         valueCounts.computeIfAbsent(value, k -> new AtomicInteger()).incrementAndGet();
 
         int count = valueCounts.get(value).get();
-        System.out.println("DEBUG: Request " + requestId + " - value count is now " + count + " (required=" + required + ")");
-        System.out.println("DEBUG: Request " + requestId + " - valueCounts map has " + valueCounts.size() + " distinct values");
+//        System.out.println("DEBUG: Request " + requestId + " - value count is now " + count + " (required=" + required + ")");
+//        System.out.println("DEBUG: Request " + requestId + " - valueCounts map has " + valueCounts.size() + " distinct values");
 
         // Check if quorum is reached and complete the future if so
         checkQuorum();
@@ -103,30 +103,30 @@ public class ConsensusMessage<K, V> {
         }
 
         if (future.isDone()) {
-            System.out.println("DEBUG: Request " + requestId + " - checkQuorum called but future already done");
+//            System.out.println("DEBUG: Request " + requestId + " - checkQuorum called but future already done");
             return true; // already completed
         }
 
-        System.out.println("DEBUG: Request " + requestId + " - checking quorum, valueCounts=" + valueCounts.size() + " entries");
+//        System.out.println("DEBUG: Request " + requestId + " - checking quorum, valueCounts=" + valueCounts.size() + " entries");
         // Check if any value (including empty values like empty digests) has reached the required count
         for (Map.Entry<V, AtomicInteger> entry : valueCounts.entrySet()) {
             int count = entry.getValue().get();
-            System.out.println("DEBUG: Request " + requestId + " - value (hashCode=" + (entry.getKey() != null ? entry.getKey().hashCode() : "null") + ") has count " + count + ", required=" + required);
+//            System.out.println("DEBUG: Request " + requestId + " - value (hashCode=" + (entry.getKey() != null ? entry.getKey().hashCode() : "null") + ") has count " + count + ", required=" + required);
             if (count >= required) {
                 // Complete future if not already done (handles null values gracefully)
                 Message representativeMsg = representative.get(entry.getKey());
-                System.out.println("DEBUG: Request " + requestId + " - QUORUM REACHED! representativeMsg is " + (representativeMsg != null ? "NOT NULL" : "NULL"));
-                System.out.println("DEBUG: Request " + requestId + " - future@" + System.identityHashCode(future) + ", isDone=" + future.isDone());
+//                System.out.println("DEBUG: Request " + requestId + " - QUORUM REACHED! representativeMsg is " + (representativeMsg != null ? "NOT NULL" : "NULL"));
+//                System.out.println("DEBUG: Request " + requestId + " - future@" + System.identityHashCode(future) + ", isDone=" + future.isDone());
                 if (representativeMsg != null) {
                     boolean completed = future.complete(representativeMsg);
-                    System.out.println("DEBUG: Request " + requestId + " - future.complete() returned " + completed + ", isDone now=" + future.isDone());
+//                    System.out.println("DEBUG: Request " + requestId + " - future.complete() returned " + completed + ", isDone now=" + future.isDone());
                 } else {
                     System.out.println("ERROR: Request " + requestId + " - representativeMsg is NULL, future NOT completed!");
                 }
                 return true;
             }
         }
-        System.out.println("DEBUG: Request " + requestId + " - no quorum yet");
+//        System.out.println("DEBUG: Request " + requestId + " - no quorum yet");
         return false;
     }
 
