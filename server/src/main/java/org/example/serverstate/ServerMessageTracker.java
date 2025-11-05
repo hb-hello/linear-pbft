@@ -84,7 +84,6 @@ public class ServerMessageTracker {
      * Uses the ServerConsensusMessageTracker to check quorum.
      *
      * @param serverMessage The server message to check
-     * @param quorumSize    The required quorum size
      * @return true if quorum is met, false otherwise
      */
     public boolean checkMessageQuorum(ServerMessage serverMessage) {
@@ -205,6 +204,13 @@ public class ServerMessageTracker {
 
     public boolean hasMessage(String messageType, long viewNumber, long sequenceNumber) {
         String messageIndex = String.format("%s:%d:%d", messageType, viewNumber, sequenceNumber);
+        // First, check if we have any indexed message matching this messageIndex (without sender).
+        for (ServerMessage msg : allMessages) {
+            if (messageIndex.equals(msg.getMessageIndex())) {
+                return true;
+            }
+        }
+        // Fall back to consensus tracker status (for messages recorded with quorum tracking)
         return consensusTracker.getStatus(messageIndex, 1).isPresent();
     }
 

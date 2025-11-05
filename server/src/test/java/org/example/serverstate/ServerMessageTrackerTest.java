@@ -748,7 +748,7 @@ class ServerMessageTrackerTest {
 
         // Add message with DIFFERENT digest (Byzantine behavior)
         MessageServiceOuterClass.PrepareMessage prepareMsg2 = MessageServiceOuterClass.PrepareMessage.newBuilder()
-                .setViewNumber(2)
+                .setViewNumber(3) // have a different view number as well
                 .setSequenceNumber(20)
                 .setDigest(ByteString.copyFromUtf8("digest-B"))  // Different digest!
                 .setIsAggregated(false)
