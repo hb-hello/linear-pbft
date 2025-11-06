@@ -31,6 +31,7 @@ public class Config {
 
     private static long clientTimeoutMillis;
     private static long serverTimeoutMillis;
+    private static long viewChangeTimeoutMillis;
     private static int maxRetries;
     private static int checkpointInterval;
     private static int watermarkWindow;
@@ -102,6 +103,12 @@ public class Config {
         serverTimeoutMillis = Long.parseLong(props.getProperty(
                 "server.timeout.millis",
                 "1000"
+        ));
+
+        // View change timeout (milliseconds)
+        viewChangeTimeoutMillis = Long.parseLong(props.getProperty(
+                "view.change.timeout.millis",
+                "2000"
         ));
 
         maxRetries = Integer.parseInt(props.getProperty(
@@ -346,6 +353,11 @@ public class Config {
         return serverTimeoutMillis;
     }
 
+    public static long getViewChangeTimeoutMillis() {
+        ensureInitialized();
+        return viewChangeTimeoutMillis;
+    }
+
     public static int getCheckpointInterval() {
         ensureInitialized();
         return checkpointInterval;
@@ -381,3 +393,4 @@ public class Config {
                 "73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001", 16);
     }
 }
+

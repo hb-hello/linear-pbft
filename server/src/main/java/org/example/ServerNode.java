@@ -1,26 +1,29 @@
 package org.example;
 
+import com.google.protobuf.Message;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.example.config.Config;
 import org.example.consensus.LivenessTimer;
 import org.example.consensus.handlers.*;
 import org.example.consensus.senders.*;
+import org.example.messaging.ServerMessage;
 import org.example.messaging.ServerMessageReceiver;
 import org.example.serverstate.OperationStatus;
 import org.example.serverstate.ServerState;
+
+import java.util.List;
 
 public class ServerNode extends Node {
 
     private static final Logger logger = LogManager.getLogger(ServerNode.class);
 
     private final int MAJORITY_COUNT = majorityCount();
-    private final int OTHER_SERVER_COUNT = 6;
-    private final long REQUEST_TIMEOUT_MILLIS = 1000;
 
     private final ServerMessageReceiver receiver;
 
     private final LivenessTimer livenessTimer;
+    private final LivenessTimer viewChangeTimer;
 
     private final ClientRequestSender clientRequestSender;
     private final ClientReplySender clientReplySender;
@@ -30,6 +33,7 @@ public class ServerNode extends Node {
     private final CheckpointSender checkpointSender;
     private final StateMessageSender stateMessageSender;
     private final ViewChangeSender viewChangeSender;
+    private final NewViewSender newViewSender;
 
     private final ClientRequestHandler clientRequestHandler;
     private final PrePrepareHandler prePrepareHandler;
@@ -46,6 +50,7 @@ public class ServerNode extends Node {
         this.receiver = new ServerMessageReceiver(this, commLogger, auth);
 
         this.livenessTimer = new LivenessTimer(Config.getServerTimeoutMillis(), this::onLivenessTimeout);
+        this.viewChangeTimer = new LivenessTimer(Config.getViewChangeTimeoutMillis(), this::onViewChangeTimeout);
 
         // Create ClientReplySender first
         this.clientReplySender = new ClientReplySender(serverId, commLogger, auth);
@@ -63,18 +68,17 @@ public class ServerNode extends Node {
         this.prePrepareSender = new PrePrepareSender(serverId, state, commLogger, auth, prepareSender);
         this.commitSender = new CommitSender(serverId, MAJORITY_COUNT, clientReplySender, state, commLogger, auth);
         this.stateMessageSender = new StateMessageSender(serverId, state, commLogger, auth);
-        this.viewChangeSender = new ViewChangeSender(serverId, majorityCountForViewChange(), commLogger, auth);
-
+        this.viewChangeSender = new ViewChangeSender(serverId, majorityCount(), commLogger, auth);
 
         this.clientRequestHandler = new ClientRequestHandler(state, clientRequestSender, clientReplySender, prePrepareSender);
         this.prePrepareHandler = new PrePrepareHandler(state, auth, prepareSender);
         this.prepareHandler = new PrepareHandler(state, MAJORITY_COUNT, prepareSender, commitSender);
         this.commitHandler = new CommitHandler(state, MAJORITY_COUNT, commitSender, clientReplySender);
         this.checkpointHandler = new CheckpointHandler(state, MAJORITY_COUNT, checkpointSender);
-        this.viewChangeHandler = new ViewChangeHandler(state, auth, majorityCountForViewChange(), viewChangeSender);
         this.stateMessageHandler = new StateMessageHandler(state);
 
-        // register state message handler with receiver via ServerNode.handleStateMessage
+        this.newViewSender = new NewViewSender(serverId, majorityCount(), commLogger, auth, checkpointHandler);
+        this.viewChangeHandler = new ViewChangeHandler(state, auth, majorityCount(), viewChangeTimer, viewChangeSender, newViewSender);
     }
 
     public void setActive(boolean active) {
@@ -87,6 +91,7 @@ public class ServerNode extends Node {
         checkpointSender.setActive(active);
         stateMessageSender.setActive(active);
         viewChangeSender.setActive(active);
+        newViewSender.setActive(active);
         receiver.setActive(active);
     }
 
@@ -103,9 +108,24 @@ public class ServerNode extends Node {
         viewChangeSender.broadcastViewChange(state);
     }
 
+    public void onViewChangeTimeout() {
+        logger.warn("View change timeout occurred in view {}, re-broadcasting view change message", state.getViewNumber());
+
+        livenessTimer.stop();
+
+        if (state.getLastExecutedView() < state.getViewNumber()) {
+            logger.info("Extending view change timeout for view {}", state.getViewNumber() + 1);
+            viewChangeTimer.addToTimeoutMillis(Config.getViewChangeTimeoutMillis());
+        } else viewChangeTimer.setTimeoutMillis(Config.getViewChangeTimeoutMillis());
+
+        viewChangeSender.broadcastViewChange(state);
+    }
+
     public void reset() {
         logger.info("Resetting server node {}", nodeId);
         state.reset();
+        livenessTimer.stop();
+        viewChangeTimer.stop();
     }
 
     public static int majorityCount() {
@@ -178,6 +198,10 @@ public class ServerNode extends Node {
         return state.printSnapshotStateMachine();
     }
 
+    public List<Message> getNewViews() {
+        return state.getMessagesForType(ServerMessage.NEW_VIEW);
+    }
+
     // Helper method used as callback for StateMachineOperator
     // Sends reply to client and remembers it in state
     private void sendAndRememberReply(MessageServiceOuterClass.ClientRequest request,
@@ -193,6 +217,12 @@ public class ServerNode extends Node {
         prePrepareSender.shutdown();
         prepareSender.shutdown();
         commitSender.shutdown();
+        checkpointSender.shutdown();
+        stateMessageSender.shutdown();
+        viewChangeSender.shutdown();
+        newViewSender.shutdown();
+        livenessTimer.shutdown();
+        viewChangeTimer.shutdown();
         receiver.shutdown();
         super.shutdown();
         logger.info("Server node {} shut down complete", nodeId);

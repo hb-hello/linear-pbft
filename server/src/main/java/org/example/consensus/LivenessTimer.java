@@ -11,7 +11,7 @@ import java.util.concurrent.TimeUnit;
 public class LivenessTimer {
     private static final Logger logger = LogManager.getLogger(LivenessTimer.class);
 
-    private final long timeoutMillis;
+    private long timeoutMillis;
     private final Runnable timeoutCallback;
 
     private final ScheduledExecutorService scheduler =
@@ -47,6 +47,15 @@ public class LivenessTimer {
         start();
     }
 
+    public synchronized void startIfNotRunning(long withTimeoutMillis) {
+        if (running) {
+            logger.debug("Timer is already running, skipping start");
+            return;
+        }
+
+        start(withTimeoutMillis);
+    }
+
     public synchronized void start() {
         if (complete) {
             logger.warn("Timer is already complete, cannot restart");
@@ -66,6 +75,25 @@ public class LivenessTimer {
                 logger.error("Error executing timeout callback", e);
             }
         }, timeoutMillis, TimeUnit.MILLISECONDS);
+    }
+
+    public synchronized void start(long withTimeoutMillis) {
+        this.timeoutMillis = withTimeoutMillis;
+        start();
+    }
+
+    public synchronized void setTimeoutMillis(long timeoutMillis) {
+        this.timeoutMillis = timeoutMillis;
+        logger.info("Liveness timer timeout set to {} ms", timeoutMillis);
+    }
+
+    public synchronized void addToTimeoutMillis(long additionalMillis) {
+        this.timeoutMillis += additionalMillis;
+        logger.info("Liveness timer timeout increased by {} ms to {} ms", additionalMillis, timeoutMillis);
+    }
+
+    public synchronized long getTimeoutMillis() {
+        return timeoutMillis;
     }
 
     public synchronized void stop() {

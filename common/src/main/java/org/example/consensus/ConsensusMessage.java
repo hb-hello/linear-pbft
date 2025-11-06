@@ -47,7 +47,7 @@ public class ConsensusMessage<K, V> {
         try {
             K id = requestIdExtractor.apply(reply);
             boolean canAccept = Objects.equals(this.requestId, id);
-//            System.out.println("Reply with id " + id + "can be accepted for message with id " + this.requestId + " : " + canAccept);
+            System.out.println("Reply with id " + id + "can be accepted for message with id " + this.requestId + " : " + canAccept);
             return canAccept;
         } catch (RuntimeException ex) {
             // extractor may throw if reply is of unexpected type; treat as non-match
@@ -57,10 +57,11 @@ public class ConsensusMessage<K, V> {
 
     /** Add a reply; dedup by responder id and count by value key. No-op if reply doesn't match this bucket. */
     public void addReply(Message reply) {
-        if (!canAccept(reply)) return;
+//        if (!canAccept(reply)) return;
         String responderId = responderIdExtractor.apply(reply);
         if (!respondersSeen.add(responderId)) {
 //            System.out.println("Duplicate reply from responder " + responderId + " for request " + requestId);
+            System.out.println(respondersSeen);
             return; // duplicate from same responder
         }
         V value = valueExtractor.apply(reply);

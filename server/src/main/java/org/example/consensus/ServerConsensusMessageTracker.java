@@ -62,12 +62,12 @@ public class ServerConsensusMessageTracker extends ConsensusMessageTracker<Strin
 
         // First ensure we have a ServerConsensusMessage (not just ConsensusMessage)
         tracked.computeIfAbsent(requestId, id -> {
-            return new ServerConsensusMessage<>(id, required, msg -> {
-                return msg.getDigest().orElse(com.google.protobuf.ByteString.EMPTY);
-            });
+            System.out.println("Implicitly creating ServerConsensusMessage tracker when recording reply for requestId=" + id);
+            return new ServerConsensusMessage<>(id, required, msg -> msg.getDigest().orElse(ByteString.EMPTY));
         });
 
         // Now use parent's recordMessage to add the reply
+//        System.out.println("Recording message for requestId=" + requestId + " using ServerConsensusMessageTracker");
         super.recordMessage(requestId, reply.getMessage(), required);
 
         // Track the messageIndexWithSender

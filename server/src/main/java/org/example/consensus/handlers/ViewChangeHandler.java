@@ -3,6 +3,9 @@ package org.example.consensus.handlers;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.example.MessageServiceOuterClass;
+import org.example.ServerNode;
+import org.example.consensus.LivenessTimer;
+import org.example.consensus.senders.NewViewSender;
 import org.example.consensus.senders.ViewChangeSender;
 import org.example.crypto.MessageAuthenticator;
 import org.example.serverstate.ServerState;
@@ -16,12 +19,18 @@ public class ViewChangeHandler {
     private final MessageAuthenticator auth;
     private final int quorumSize;
     private final ViewChangeSender viewChangeSender;
+    private final NewViewSender newViewSender;
 
-    public ViewChangeHandler(ServerState state, MessageAuthenticator auth, int quorumSize, ViewChangeSender viewChangeSender) {
+    private final LivenessTimer viewChangeTimer;
+
+    public ViewChangeHandler(ServerState state, MessageAuthenticator auth, int quorumSize, LivenessTimer viewChangeTimer,
+                             ViewChangeSender viewChangeSender, NewViewSender newViewSender) {
         this.quorumSize = quorumSize;
         this.state = state;
         this.auth = auth;
         this.viewChangeSender = viewChangeSender;
+        this.newViewSender = newViewSender;
+        this.viewChangeTimer = viewChangeTimer;
     }
 
     private boolean isValid(List<MessageServiceOuterClass.CheckpointMessage> checkpointMessages, long viewNumber, long lastStableSeqNum) {
@@ -66,11 +75,11 @@ public class ViewChangeHandler {
                 return false;
             }
 
-            if (prePrepareMessage.getViewNumber() != previousView) {
-                logger.warn("PreparedCertificate PrePrepare message view number {} does not match expected view number {}",
-                        prePrepareMessage.getViewNumber(), previousView);
-                return false;
-            }
+//            if (prePrepareMessage.getViewNumber() != previousView) {
+//                logger.warn("PreparedCertificate PrePrepare message view number {} does not match expected view number {}",
+//                        prePrepareMessage.getViewNumber(), previousView);
+//                return false;
+//            }
 
             MessageServiceOuterClass.PrepareMessage prepareMessage = preparedCertificate.getPrepareMessage();
 
@@ -79,7 +88,7 @@ public class ViewChangeHandler {
                 return false;
             }
 
-            if (prepareMessage.getViewNumber() != previousView || prepareMessage.getSequenceNumber() != seqNum) {
+            if (prepareMessage.getViewNumber() != prePrepareMessage.getViewNumber() || prepareMessage.getSequenceNumber() != seqNum) {
                 logger.warn("PreparedCertificate Prepare message view number {} or sequence number {} does not match expected view number {} and sequence number {}",
                         prepareMessage.getViewNumber(), prepareMessage.getSequenceNumber(), previousView, seqNum);
                 return false;
@@ -91,6 +100,12 @@ public class ViewChangeHandler {
     public void handle(MessageServiceOuterClass.ViewChangeMessage viewChangeMessage) {
         long viewNumber = viewChangeMessage.getViewNumber();
         long lastStableSeqNum = state.getLatestStableCheckpointSeqNum();
+
+        if (viewNumber < state.getViewNumber()) {
+            logger.info("Ignoring ViewChangeMessage for view {} because current view is {}",
+                    viewNumber, state.getViewNumber());
+            return;
+        }
 
         if (!isValid(viewChangeMessage.getCheckpointMessagesList(), viewNumber, lastStableSeqNum)) {
             logger.info("Invalid Checkpoint messages in ViewChangeMessage for view {}, ignoring", viewNumber);
@@ -109,23 +124,24 @@ public class ViewChangeHandler {
         }
 
         if (!state.checkMessageQuorum(viewChangeMessage)) {
-            logger.info("ViewChangeMessage for view {} has not reached quorum yet", viewNumber);
+            logger.info("ViewChangeMessage for view {} has not reached full quorum yet", viewNumber);
+
+            // this should happen once before we reach quorum - which is when view number will be incremented and primary will be updated
+            if (state.appendAndCheckMinQuorumForViewChange(viewChangeMessage, ServerNode.majorityCountForViewChange()) && !state.isViewChangeInProgress()) {
+                logger.info("ViewChangeMessage for view {} has reached minimum quorum for requesting view change, setting view change in progress to true and broadcasting ViewChange message",
+                        viewNumber);
+                viewChangeSender.broadcastViewChange(state, state.getViewNumber(), state.getViewChangeQuorumMinView());
+                return;
+            }
+
+            logger.info("Minimum quorum for view change not yet reached for view {}", viewNumber);
             return;
         }
 
-        if (!state.isViewChangeInProgress()) {
-            logger.info("As view change in progress is false, setting it to true and broadcasting ViewChange message for view {}",
-                    viewNumber);
-            viewChangeSender.broadcastViewChange(state);
-        }
+        newViewSender.broadcastNewView(state, viewNumber);
 
-        if (state.isPrimary()) {
-            logger.info("This server is the new primary for view {}, preparing NewView message",
-                    viewNumber);
-            // broadcast new view
-        }
-
-        logger.info("ViewChangeMessage for view {} has reached quorum, sending",
+        logger.info("ViewChangeMessage for view {} has reached full quorum, starting view change timer",
                 viewNumber);
+        viewChangeTimer.startIfNotRunning();
     }
 }

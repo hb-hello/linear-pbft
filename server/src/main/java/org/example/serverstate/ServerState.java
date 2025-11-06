@@ -335,7 +335,26 @@ public final class ServerState {
     // State-machine operations — example transfer and read-only balance
 
     // Generic execute that delegates to the pluggable state machine
-    public CompletableFuture<MessageServiceOuterClass.ClientReply> executeRequest(MessageServiceOuterClass.ClientRequest request, long seqNum) {
+    public CompletableFuture<MessageServiceOuterClass.ClientReply> executeRequest(MessageServiceOuterClass.ClientRequest request, ByteString digest, long seqNum) {
+
+        // Handle null request (no-op) case
+        if (request == null) {
+            logger.info("Encountered null request for seqNum {}, checking the digest to verify if no-op", seqNum);
+            ByteString nullDigest = ByteString.copyFrom(new byte[32]);
+            if (nullDigest.equals(digest)) {
+                logger.info("Digest matches null digest, executing no-op for seqNum {}", seqNum);
+
+                MessageServiceOuterClass.Operation noOp = MessageServiceOuterClass.Operation.newBuilder()
+                        .setBalanceRequest(MessageServiceOuterClass.BalanceRequest.newBuilder().setAccountId("A").build())
+                        .build();
+
+                request = MessageServiceOuterClass.ClientRequest.newBuilder().setClientId("no-op")
+                .setTimestamp(System.currentTimeMillis())
+                .setOperation(noOp)
+                .build();
+            }
+        }
+
         logger.info("Attempting to execute operation of type: {}", request.getOperation().getOpCase());
         return stateMachineOperator.executeOperation(request, seqNum)
             .thenApply(reply -> {
@@ -379,6 +398,10 @@ public final class ServerState {
 
     public List<MessageServiceOuterClass.ClientRequest> getPendingOperations() {
         return runSync(() -> stateMachineOperator.getPendingOperations());
+    }
+
+    public long getLastExecutedView() {
+        return runSync(() -> stateMachineOperator.getLastExecutedView());
     }
 
     // Reply tracking — store the highest timestamp per client and a reply object
@@ -491,6 +514,40 @@ public final class ServerState {
         return runSync(() -> serverMessageTracker.appendAndAwaitConsensus(msg, timeout, required));
     }
 
+    public void appendViewChangeForConsensusByType(MessageServiceOuterClass.ViewChangeMessage viewChange, int required) {
+        runSync(() -> {
+            String messageIndex = viewChange.getDescriptorForType().getName();
+            serverMessageTracker.appendWithId(ServerMessage.wrap(viewChange), messageIndex, required);
+        });
+    }
+
+    public boolean checkQuorumForViewChangeByType(MessageServiceOuterClass.ViewChangeMessage viewChange) {
+        return runSync(() -> {
+            String messageIndex = viewChange.getDescriptorForType().getName();
+            return serverMessageTracker.checkMessageQuorum(messageIndex);
+        });
+    }
+
+    public boolean appendAndCheckMinQuorumForViewChange(MessageServiceOuterClass.ViewChangeMessage viewChange, int required) {
+        return runSync(() -> {
+            appendViewChangeForConsensusByType(viewChange, required);
+            return checkQuorumForViewChangeByType(viewChange);
+        });
+    }
+
+    public long getViewChangeQuorumMinView() {
+        return runSync(() -> {
+            List<ServerMessage> messages = serverMessageTracker.getQuorumMessages(
+                    MessageServiceOuterClass.ViewChangeMessage.getDescriptor().getName());
+
+            return messages.stream()
+                    .map(msg -> (MessageServiceOuterClass.ViewChangeMessage) msg.getMessage())
+                    .mapToLong(MessageServiceOuterClass.ViewChangeMessage::getViewNumber)
+                    .min()
+                    .orElse(0L);
+        });
+    }
+
     // every time a pre-prepare is received, check quorum for matching prepares
     // every time a prepare is received, check quorum for matching prepares and commits
     // every time a commit is received, check quorum for matching commits
@@ -508,6 +565,18 @@ public final class ServerState {
 
     public List<ServerMessage> getQuorumMessages(String messageType, long viewNumber, long sequenceNumber) {
         return runSync(() -> serverMessageTracker.getQuorumMessages(messageType, viewNumber, sequenceNumber));
+    }
+
+    public List<ServerMessage> getQuorumMessages(String messageIndex) {
+        return runSync(() -> serverMessageTracker.getQuorumMessages(messageIndex));
+    }
+
+    public List<Message> getMessagesForType(String messageType) {
+        return runSync(() -> {
+            return serverMessageTracker.getMessagesByType(messageType, viewNumber).stream()
+                    .map(ServerMessage::getMessage)
+                    .toList();
+        });
     }
 
     public ServerMessageTracker getServerMessageTracker() {
@@ -700,6 +769,19 @@ public final class ServerState {
             } else {
                 return false;
             }
+        });
+    }
+
+    public MessageServiceOuterClass.ViewChangeMessage findViewChange(long viewNumber, String senderId) {
+        return runSync(() -> {
+            ServerMessage message = serverMessageTracker.findMessage(
+                    ServerMessage.VIEW_CHANGE,
+                    viewNumber,
+                    senderId);
+            if (message == null) {
+                return null;
+            }
+            return (MessageServiceOuterClass.ViewChangeMessage) message.getMessage();
         });
     }
 

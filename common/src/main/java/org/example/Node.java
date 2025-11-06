@@ -51,9 +51,6 @@ public class Node {
         return getServerIdForNumber(serverNumber);
     }
 
-    /**
-     * Simple majority threshold (n/2 + 1).
-     */
     protected int majorityCountForClient() {
         return MAX_FAULTY_NODES + 1;
     }

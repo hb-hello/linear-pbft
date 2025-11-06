@@ -10,6 +10,7 @@ import org.example.MessageServiceOuterClass;
 import org.example.ServerNode;
 import org.example.crypto.MessageAuthenticator;
 
+import static org.example.CLILogging.formatNewViews;
 import static org.example.CLILogging.mapStatus;
 
 //import static org.example.CLILogging.formatNewViews;
@@ -199,30 +200,6 @@ public class ServerMessageService extends MessageServiceGrpc.MessageServiceImplB
 //        node.handleNewView(request, responseObserver);
 //    }
 //
-//    @Override
-//    public void forwardClientRequest(MessageServiceOuterClass.ClientRequest request, StreamObserver<Empty> responseObserver) {
-//        communicationLogger.add(
-//                String.format("MESSAGE: <REQUEST, (%s, %s, %f), %d, %s> forwarded from another server",
-//                        request.getTransaction().getSender(),
-//                        request.getTransaction().getReceiver(),
-//                        request.getTransaction().getAmount(),
-//                        request.getTimestamp(),
-//                        request.getClientId()
-//                )
-//        );
-//        logger.info("MESSAGE: <REQUEST, ({}, {}, {}), {}, {}> forwarded from another server",
-//                request.getTransaction().getSender(),
-//                request.getTransaction().getReceiver(),
-//                request.getTransaction().getAmount(),
-//                request.getTimestamp(),
-//                request.getClientId()
-//        );
-//
-//        node.handleClientRequest(request, null);
-//
-//        responseObserver.onNext(Empty.getDefaultInstance());
-//        responseObserver.onCompleted();
-//    }
 
     @Override
     public void getLog(Empty request, StreamObserver<MessageServiceOuterClass.CLIResponse> responseObserver) {
@@ -249,12 +226,12 @@ public class ServerMessageService extends MessageServiceGrpc.MessageServiceImplB
     }
 //
 //    @Override
-//    public void getNewViews(Empty request, StreamObserver<MessageServiceOuterClass.CLIResponse> responseObserver) {
-//        String newViewsString = formatNewViews(node.getNewViews());
-//        MessageServiceOuterClass.CLIResponse response = MessageServiceOuterClass.CLIResponse.newBuilder().setCliResponse(newViewsString).build();
-//        responseObserver.onNext(response);
-//        responseObserver.onCompleted();
-//    }
+    public void getNewViews(Empty request, StreamObserver<MessageServiceOuterClass.CLIResponse> responseObserver) {
+        String newViewsString = formatNewViews(serverNode.getNewViews());
+        MessageServiceOuterClass.CLIResponse response = MessageServiceOuterClass.CLIResponse.newBuilder().setCliResponse(newViewsString).build();
+        responseObserver.onNext(response);
+        responseObserver.onCompleted();
+    }
 
     @Override
     public void getOperationLog(Empty request, StreamObserver<MessageServiceOuterClass.CLIResponse> responseObserver) {

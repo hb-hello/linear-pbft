@@ -74,7 +74,6 @@ public class CheckpointHandler {
         logger.info("Checkpoint for view {} seq {} has reached quorum but is not executed yet, requesting state from other servers",
                 viewNumber, sequenceNumber);
 
-
         // create state message using stable checkpoint's digest to await consensus
         MessageServiceOuterClass.StateMessage stateMessage =
                 MessageServiceOuterClass.StateMessage.newBuilder()

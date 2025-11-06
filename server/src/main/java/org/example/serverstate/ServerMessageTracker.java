@@ -58,7 +58,7 @@ public class ServerMessageTracker {
         index.put(messageIndexWithSender, message);
 
         // Record message in consensus tracker (using messageIndex without sender)
-        if(required > 0) consensusTracker.recordMessage(messageIndex, message, required);
+        if (required > 0) consensusTracker.recordMessage(messageIndex, message, required);
 
         logger.info("Appended and indexed message: {}, messageIndex={}",
                 messageIndexWithSender, messageIndex);
@@ -80,6 +80,21 @@ public class ServerMessageTracker {
         logger.info("Appended and indexed message without consensus: {}, messageIndex={}",
                 message.getMessageIndexWithSender(), withIndex);
         return true;
+    }
+
+    public void appendWithId(ServerMessage message, String withIndex, int required) {
+        // Add to list and index
+        allMessages.add(message);
+        if (!index.containsKey(message.getMessageIndexWithSender()))
+            index.put(message.getMessageIndexWithSender(), message);
+
+        // Record message in consensus tracker (using messageIndex without sender)
+        if (required > 0) {
+            consensusTracker.recordMessage(withIndex, message, required);
+            logger.info("Appended and indexed message with custom index: {}, messageIndex={}",
+                    withIndex, message.getMessageIndexWithSender());
+        }
+
     }
 
     /**
@@ -154,6 +169,10 @@ public class ServerMessageTracker {
 
     public List<ServerMessage> getQuorumMessages(String messageType, long viewNumber, long sequenceNumber) {
         String messageIndex = String.format("%s:%d:%d", messageType, viewNumber, sequenceNumber);
+        return getQuorumMessages(messageIndex);
+    }
+
+    public List<ServerMessage> getQuorumMessages(String messageIndex) {
         Set<String> messageIndicesWithSender = consensusTracker.getMessageIndicesWithSender(messageIndex);
 
         List<ServerMessage> quorumMessages = new ArrayList<>();
@@ -229,6 +248,11 @@ public class ServerMessageTracker {
         return index.get(messageIndex);
     }
 
+    public ServerMessage findMessage(String messageType, long viewNumber, String senderId) {
+        String messageIndex = String.format("%s:%d:%s", messageType, viewNumber, senderId);
+        return index.get(messageIndex);
+    }
+
     public boolean hasMessage(String messageType, long viewNumber, long sequenceNumber) {
         String messageIndex = String.format("%s:%d:%d", messageType, viewNumber, sequenceNumber);
         // First, check if we have any indexed message matching this messageIndex (without sender).
@@ -256,16 +280,20 @@ public class ServerMessageTracker {
         StringBuilder sb = new StringBuilder();
         for (Map.Entry<String, ServerMessage> entry : index.entrySet()) {
             sb.append("Index: ").append(entry.getKey())
-              .append(", Message: ").append(entry.getValue().toDetailedString())
-              .append("\n");
+                    .append(", Message: ").append(entry.getValue().toDetailedString())
+                    .append("\n");
         }
         return sb.toString();
     }
 
     public List<ServerMessage> getMessagesByType(String messageType) {
+        return getMessagesByType(messageType, 0);
+    }
+
+    public List<ServerMessage> getMessagesByType(String messageType, long viewNumber) {
         List<ServerMessage> filteredMessages = new ArrayList<>();
         for (ServerMessage msg : allMessages) {
-            if (msg.getMessageType().equals(messageType)) {
+            if (msg.getMessageType().equals(messageType) && msg.getViewNumber().orElse(0L) == viewNumber) {
                 filteredMessages.add(msg);
             }
         }

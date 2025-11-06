@@ -21,7 +21,9 @@ public class StateMachineOperator {
     private final ServerState state;
     private final OperationLog operationLog;
     private final StateMachine stateMachine;
+
     private long lastExecutedSeqNum = 0L;
+    private long lastExecutedView = 0L;
     private final Map<Long, MessageServiceOuterClass.ClientRequest> pendingOperations = new ConcurrentHashMap<>();
     private final ExecutorService stateMachineExecutor;
     private final BiConsumer<MessageServiceOuterClass.ClientRequest, MessageServiceOuterClass.ClientReply> replySender;
@@ -47,7 +49,39 @@ public class StateMachineOperator {
     public void markExecutedUpTo(long executedSeqNum) {
         pendingOperations.remove(executedSeqNum);
         lastExecutedSeqNum = Math.max(lastExecutedSeqNum, executedSeqNum);
+        lastExecutedView = state.getViewNumber();
         if (!pendingOperations.isEmpty()) executePendingOperations();
+    }
+
+    /**
+     * Core execution logic shared by both executeOperation and executePendingOperations.
+     * Executes the operation on the state machine and returns the reply.
+     */
+    private MessageServiceOuterClass.ClientReply executeAndBuildReply(
+            MessageServiceOuterClass.ClientRequest request, long seqNum) {
+
+        MessageServiceOuterClass.Operation operation = request.getOperation();
+        logger.info("Executing operation of type: {} at seq {}", operation.getOpCase(), seqNum);
+
+        MessageServiceOuterClass.OperationResult result = stateMachine.execute(operation);
+
+        pendingOperations.remove(seqNum);
+        lastExecutedSeqNum = seqNum;
+
+        if (operationLog != null) {
+            operationLog.updateStatus(seqNum, OperationStatus.EXECUTED);
+        }
+
+        // Send checkpoint if at checkpoint interval
+        checkpointSender.accept(state, seqNum);
+
+        return MessageServiceOuterClass.ClientReply.newBuilder()
+                .setViewNumber(state.getViewNumber())
+                .setTimestamp(request.getTimestamp())
+                .setClientId(request.getClientId())
+                .setServerId(state.getServerId())
+                .setResult(result)
+                .build();
     }
 
     // State-machine operations — example transfer and read-only balance
@@ -74,24 +108,18 @@ public class StateMachineOperator {
                 return null;
             }
 
-            // Execute the operation
-            MessageServiceOuterClass.Operation operation = request.getOperation();
-            logger.info("Executing operation of type: {} at seq {}", operation.getOpCase(), seqNum);
-            MessageServiceOuterClass.OperationResult result = stateMachine.execute(operation);
-            markExecutedUpTo(seqNum);
+            // Execute the operation using shared logic
+            MessageServiceOuterClass.ClientReply reply = executeAndBuildReply(request, seqNum);
 
-            if (operationLog != null) operationLog.updateStatus(seqNum, OperationStatus.EXECUTED);
+            // Update lastExecutedView after successful execution
+            lastExecutedView = state.getViewNumber();
 
-            // Send checkpoint if at checkpoint interval
-            checkpointSender.accept(state, seqNum);
+            // Check for more pending operations
+            if (!pendingOperations.isEmpty()) {
+                executePendingOperations();
+            }
 
-            return MessageServiceOuterClass.ClientReply.newBuilder()
-                    .setViewNumber(state.getViewNumber())
-                    .setTimestamp(request.getTimestamp())
-                    .setClientId(request.getClientId())
-                    .setServerId(state.getServerId())
-                    .setResult(result)
-                    .build();
+            return reply;
         }, stateMachineExecutor);
     }
 
@@ -107,28 +135,14 @@ public class StateMachineOperator {
                 break;
             }
 
-            // Execute the operation directly without calling executeOperation to avoid recursion
-            MessageServiceOuterClass.Operation operation = nextRequest.getOperation();
-            logger.info("Executing pending operation with seqNum {} of type: {}", nextSeqNum, operation.getOpCase());
-            MessageServiceOuterClass.OperationResult result = stateMachine.execute(operation);
+            // Execute the operation using shared logic
+            MessageServiceOuterClass.ClientReply reply = executeAndBuildReply(nextRequest, nextSeqNum);
 
-            MessageServiceOuterClass.ClientReply reply = MessageServiceOuterClass.ClientReply.newBuilder()
-                    .setViewNumber(state.getViewNumber())
-                    .setTimestamp(nextRequest.getTimestamp())
-                    .setClientId(nextRequest.getClientId())
-                    .setServerId(state.getServerId())
-                    .setResult(result)
-                    .build();
-
-            pendingOperations.remove(nextSeqNum);
-            lastExecutedSeqNum = nextSeqNum;
-            if (operationLog != null) operationLog.updateStatus(nextSeqNum, OperationStatus.EXECUTED);
+            // Update lastExecutedView after successful execution
+            lastExecutedView = state.getViewNumber();
 
             // Send the reply to the client for the pending operation using the callback
             replySender.accept(nextRequest, reply);
-
-            // Send checkpoint if at checkpoint interval
-            checkpointSender.accept(state, nextSeqNum);
         }
         logger.info("Finished executing pending operations up to seqNum {}", lastExecutedSeqNum);
     }
@@ -139,16 +153,6 @@ public class StateMachineOperator {
 
     public List<MessageServiceOuterClass.ClientRequest> getPendingOperations() {
         return Map.copyOf(pendingOperations).values().stream().toList();
-    }
-
-    public void applyCheckpoint(MessageServiceOuterClass.CheckpointMessage stableCheckpoint) {
-        if (lastExecutedSeqNum >= stableCheckpoint.getSequenceNumber()) {
-            logger.info("Checkpoint at seqNum {} is not newer than last executed seqNum {}, skipping apply",
-                    stableCheckpoint.getSequenceNumber(), lastExecutedSeqNum);
-            return;
-        }
-
-        //TODO: catch up state from another server
     }
 
     public boolean isExecuted(long seqNum) {
@@ -169,8 +173,13 @@ public class StateMachineOperator {
         return stateMachine.snapshotToString();
     }
 
+    public long getLastExecutedView() {
+        return lastExecutedView;
+    }
+
     public void reset() {
         lastExecutedSeqNum = 0L;
+        lastExecutedView = 0L;
         pendingOperations.clear();
         stateMachine.reset();
     }

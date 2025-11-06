@@ -93,7 +93,7 @@ public class CommitHandler {
         }
 
         // Execute the operation (returns a future)
-        state.executeRequest(clientRequest, sequenceNumber)
+        state.executeRequest(clientRequest, digest, sequenceNumber)
             .thenAccept(reply -> {
                 // Send the reply to the client when execution completes
                 if (reply != null) {

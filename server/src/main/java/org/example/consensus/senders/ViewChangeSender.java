@@ -24,14 +24,27 @@ public class ViewChangeSender extends MessageSender {
     }
 
     public void broadcastViewChange(ServerState state) {
+        long currentView = state.getViewNumber();
+        long newViewNumber = currentView + 1;
+        broadcastViewChange(state, currentView, newViewNumber);
+    }
+
+    public void broadcastViewChange(ServerState state, long currentView, long newViewNumber) {
+
+        logger.info("Attempting to broadcast ViewChange message for new view {} with current view {}", newViewNumber, currentView);
+
         if (!state.isViewChangeInProgress()) {
             logger.info("No view change in progress, not sending ViewChange message");
             return;
         }
 
-        logger.info("Preparing ViewChange message for view {}", state.getViewNumber() + 1);
+        if (newViewNumber < currentView) {
+            logger.info("Not sending ViewChange message for view {} because current view is {}",
+                    newViewNumber, currentView);
+            return;
+        }
 
-        long currentView = state.getViewNumber();
+        logger.info("Preparing ViewChange message for view {}", state.getViewNumber() + 1);
 
         MessageServiceOuterClass.ViewChangeMessage.Builder viewChangeBuilder = MessageServiceOuterClass.ViewChangeMessage.newBuilder();
 
@@ -56,9 +69,11 @@ public class ViewChangeSender extends MessageSender {
             }
         }
 
-        // increment view
-        logger.info("Incrementing view from {} to {}", currentView, currentView + 1);
-        long newViewNumber = state.nextViewAndUpdatePrimary();
+        // set view
+
+        state.setViewAndPrimary(newViewNumber);
+
+        logger.info("Incrementing view from {} to {}", currentView, newViewNumber);
         viewChangeBuilder.setViewNumber(newViewNumber);
 
         MessageServiceOuterClass.ViewChangeMessage viewChangeMessage = viewChangeBuilder.build();
