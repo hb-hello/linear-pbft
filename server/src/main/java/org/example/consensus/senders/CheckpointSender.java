@@ -1,6 +1,7 @@
 package org.example.consensus.senders;
 
 import com.google.protobuf.ByteString;
+import com.google.protobuf.Empty;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.example.MessageServiceOuterClass;
@@ -61,5 +62,14 @@ public class CheckpointSender extends MessageSender {
 
         broadcast(signedCheckpointMsg, (stub, signed) -> stub.checkpoint((MessageServiceOuterClass.CheckpointMessage) signed));
         logger.info("Sent Checkpoint for view {} seq {}", viewNumber, sequenceNumber);
+    }
+
+    public void broadcastStateRequest(String serverId) {
+        logger.info("Broadcasting state request from server {}", serverId);
+        MessageServiceOuterClass.StateRequestMessage stateRequestMessage = MessageServiceOuterClass.StateRequestMessage.newBuilder()
+                .setRequesterId(serverId)
+                .build();
+
+        broadcast(stateRequestMessage, (stub, msg) -> stub.stateRequest((MessageServiceOuterClass.StateRequestMessage) msg));
     }
 }

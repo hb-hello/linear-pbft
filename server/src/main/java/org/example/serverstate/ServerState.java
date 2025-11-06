@@ -10,6 +10,7 @@ import org.example.consensus.LivenessTimer;
 import org.example.messaging.MessageUtil;
 import org.example.messaging.ServerMessage;
 
+import java.time.Duration;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.*;
@@ -53,6 +54,7 @@ public final class ServerState {
 
     // Checkpoints and message history
     private final ConcurrentHashMap<Long, MessageServiceOuterClass.CheckpointMessage> stableCheckpoints = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<Long, Object> stableCheckpointSnapshots = new ConcurrentHashMap<>();
     private final ServerMessageTracker serverMessageTracker = new ServerMessageTracker();
 
     // Output buffer drained by networking; enqueue from actor for ordering with state updates
@@ -202,6 +204,8 @@ public final class ServerState {
         runSync(() -> {
             logger.info("Adding stable checkpoint for seq {}", checkpointMessage.getSequenceNumber());
             stableCheckpoints.put(checkpointMessage.getSequenceNumber(), checkpointMessage);
+            stableCheckpointSnapshots.put(checkpointMessage.getSequenceNumber(),
+                    stateMachineOperator.snapshot());
 
             // update watermarks
             long seqNum = checkpointMessage.getSequenceNumber();
@@ -219,6 +223,14 @@ public final class ServerState {
 
     public MessageServiceOuterClass.CheckpointMessage getLatestStableCheckpoint() {
         return runSync(() -> stableCheckpoints.get(latestStableCheckpointSeqNum));
+    }
+
+    public Object getLatestStableCheckpointSnapshot() {
+        return runSync(() -> stableCheckpointSnapshots.get(latestStableCheckpointSeqNum));
+    }
+    
+    public long getLatestStableCheckpointSeqNum() {
+        return runSync(() -> latestStableCheckpointSeqNum);
     }
 
     public String getPrimaryServerId() {
@@ -304,8 +316,20 @@ public final class ServerState {
             });
     }
 
-    public String snapshotStateMachine() {
+    public Object snapshotStateMachine() {
         return runSync(() -> stateMachineOperator.snapshot());
+    }
+
+    public String printSnapshotStateMachine() {
+        return runSync(() -> stateMachineOperator.snapshotToString());
+    }
+    
+    public boolean isExecuted(long sequenceNumber) {
+        return runSync(() -> stateMachineOperator.isExecuted(sequenceNumber));
+    }
+
+    public boolean applySnapshotToStateMachine(Object snapshot, long seqNum) {
+        return runSync(() -> stateMachineOperator.applySnapshot(snapshot, seqNum));
     }
 
     // Reply tracking — store the highest timestamp per client and a reply object
@@ -412,6 +436,10 @@ public final class ServerState {
             }
             return appendClientRequest(msg);
         });
+    }
+
+    public Message appendAndAwaitConsensus(Message msg, Duration timeout, int required) throws TimeoutException, InterruptedException {
+        return runSync(() -> serverMessageTracker.appendAndAwaitConsensus(msg, timeout, required));
     }
 
     // every time a pre-prepare is received, check quorum for matching prepares
@@ -627,6 +655,7 @@ public final class ServerState {
             replyTimestamps.clear();
             replyCache.clear();
             stableCheckpoints.clear();
+            stableCheckpointSnapshots.clear();
             serverMessageTracker.clear();
             outputBuffer.clear();
             resetWatermarks();

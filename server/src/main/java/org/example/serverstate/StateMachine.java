@@ -15,7 +15,7 @@ import org.example.MessageServiceOuterClass;
  * - Missing accounts (sender/receiver/account not present in the state machine's balances) MUST throw {@link IllegalArgumentException}.
  * - Zero-amount transfers MUST succeed without mutating balances (RESULT=true).
  */
-public interface StateMachine {
+public interface StateMachine<V> {
     /**
      * Execute a single deterministic operation and return a proto OperationResult.
      * Implementations should not mutate state for read-only operations and must enforce the error behavior above.
@@ -26,13 +26,15 @@ public interface StateMachine {
      * Consistent snapshot of application state for CLI/inspection.
      * The returned object must be immutable or a defensive copy of internal state (e.g., Map.copyOf).
      */
-    Object snapshot();
+    V snapshot();
 
     /**
      * Returns a deterministic string representation of the state machine snapshot.
      * For map-based state, keys should be sorted to ensure consistency.
      */
     String snapshotToString();
+
+    boolean applySnapshot(Object snapshot);
 
     /**
      * Clear all application state (used between test sets and on ServerState.reset()).

@@ -1,13 +1,16 @@
 package org.example.serverstate;
 
 import com.google.protobuf.ByteString;
+import com.google.protobuf.Message;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.example.consensus.ServerConsensusMessageTracker;
 import org.example.messaging.ServerMessage;
 
 import java.io.UnsupportedEncodingException;
+import java.time.Duration;
 import java.util.*;
+import java.util.concurrent.TimeoutException;
 
 /**
  * Tracks server-to-server PBFT messages with efficient lookup using message indices.
@@ -102,6 +105,14 @@ public class ServerMessageTracker {
         logger.info("Quorum check for {} : required={}, met={}",
                 messageIndex, consensusTracker.getQuorumRequired(messageIndex), met);
         return met;
+    }
+
+    public Message appendAndAwaitConsensus(Message msg, Duration timeout, int required) throws TimeoutException, InterruptedException {
+        ServerMessage serverMsg = ServerMessage.wrap(msg);
+
+        append(serverMsg, required);
+        ServerMessage result = consensusTracker.awaitConsensusAsServerMessage(serverMsg.getMessageIndex(), timeout, required);
+        return result.getMessage();
     }
 
     /**

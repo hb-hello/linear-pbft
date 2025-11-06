@@ -14,7 +14,11 @@ service MessageService {
     rpc PrePrepare(PrePrepareRequest) returns (google.protobuf.Empty);
     rpc Prepare(PrepareMessage) returns (google.protobuf.Empty);
     rpc Commit(CommitMessage) returns (google.protobuf.Empty);
+
+    // checkpointing
     rpc Checkpoint(CheckpointMessage) returns (google.protobuf.Empty);
+    rpc StateRequest(StateRequestMessage) returns (google.protobuf.Empty);
+    rpc StateResponse(StateMessage) returns (google.protobuf.Empty);
 
     // for cli
     rpc SetActiveFlag(ActiveFlag) returns (Acknowledgement);
@@ -123,10 +127,23 @@ message CommitMessage {
     bytes signature = 6;
 }
 
+// checkpointing
+
 message CheckpointMessage {
     int64 view_number = 1;
     int64 sequence_number = 2;
     bytes digest = 3;
     string signer_id = 4;
     bytes signature = 5;
+}
+
+message StateRequestMessage {
+    string requester_id = 1;
+}
+
+message StateMessage {
+    map<string, double> state_snapshot = 1;
+    bytes digest = 2;
+    string signer_id = 3;
+    bytes signature = 4;
 }

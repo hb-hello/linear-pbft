@@ -25,6 +25,7 @@ public class ServerNode extends Node {
     private final PrepareSender prepareSender;
     private final CommitSender commitSender;
     private final CheckpointSender checkpointSender;
+    private final StateMessageSender stateMessageSender;
 
     private final ClientRequestHandler clientRequestHandler;
     private final PrePrepareHandler prePrepareHandler;
@@ -55,13 +56,14 @@ public class ServerNode extends Node {
         this.prepareSender = new PrepareSender(serverId, state, commLogger, auth);
         this.prePrepareSender = new PrePrepareSender(serverId, state, commLogger, auth, prepareSender);
         this.commitSender = new CommitSender(serverId, MAJORITY_COUNT, clientReplySender, state, commLogger, auth);
+        this.stateMessageSender = new StateMessageSender(serverId, state, commLogger, auth);
 
 
         this.clientRequestHandler = new ClientRequestHandler(state, clientRequestSender, clientReplySender, prePrepareSender);
         this.prePrepareHandler = new PrePrepareHandler(state, auth, prepareSender);
         this.prepareHandler = new PrepareHandler(state, MAJORITY_COUNT, prepareSender, commitSender);
         this.commitHandler = new CommitHandler(state, MAJORITY_COUNT, commitSender, clientReplySender);
-        this.checkpointHandler = new CheckpointHandler(state, MAJORITY_COUNT);
+        this.checkpointHandler = new CheckpointHandler(state, MAJORITY_COUNT, checkpointSender);
     }
 
     public void setActive(boolean active) {
@@ -111,6 +113,12 @@ public class ServerNode extends Node {
         });
     }
 
+    public void handleStateRequest(String targetServerId) {
+        executorManager.submitMessageProcessing(() -> {
+            stateMessageSender.sendStateMessage(targetServerId);
+        });
+    }
+
     public String getOperation(long sequenceNumber) {
         return state.getOperation(sequenceNumber).toString();
     }
@@ -124,7 +132,7 @@ public class ServerNode extends Node {
     }
 
     public String getDB() {
-        return state.snapshotStateMachine();
+        return state.printSnapshotStateMachine();
     }
 
     // Helper method used as callback for StateMachineOperator

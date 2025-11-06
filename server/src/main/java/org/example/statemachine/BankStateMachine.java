@@ -8,7 +8,7 @@ import org.example.serverstate.StateMachine;
 import java.util.HashMap;
 import java.util.Map;
 
-public final class BankStateMachine implements StateMachine {
+public final class BankStateMachine implements StateMachine<Map<String, Double>> {
 
     private static final Logger logger = LogManager.getLogger(BankStateMachine.class);
 
@@ -115,6 +115,25 @@ public final class BankStateMachine implements StateMachine {
         return Map.copyOf(balances);
     }
 
+    public static Map<String, Double> convertSnapshot(Object snapshotObj) {
+        // check if snapshotObj is of type Map<String, Double>
+        if (snapshotObj instanceof Map<?, ?> snapshotMap) {
+            Map<String, Double> result = new HashMap<>();
+            for (Map.Entry<?, ?> entry : snapshotMap.entrySet()) {
+                Object key = entry.getKey();
+                Object value = entry.getValue();
+                if (key instanceof String strKey && value instanceof Double doubleValue) {
+                    result.put(strKey, doubleValue);
+                } else {
+                    throw new IllegalArgumentException("Snapshot map contains invalid key/value types");
+                }
+            }
+            return Map.copyOf(result);
+        } else {
+            throw new IllegalArgumentException("Snapshot object is not of type Map<String, Double>");
+        }
+    }
+
     @Override
     public String snapshotToString() {
         StringBuilder sb = new StringBuilder();
@@ -122,6 +141,20 @@ public final class BankStateMachine implements StateMachine {
                 .sorted()
                 .forEach(key -> sb.append(key).append("=").append(balances.get(key)).append(";"));
         return sb.toString();
+    }
+
+    @Override
+    public boolean applySnapshot(Object snapshot) {
+        try {
+            Map<String, Double> snap = convertSnapshot(snapshot);
+            balances.clear();
+            balances.putAll(snap);
+//            logger.info("APPLY SNAPSHOT: Successfully applied snapshot: {}", snap);
+            return true;
+        } catch (IllegalArgumentException e) {
+            logger.error("APPLY SNAPSHOT: Failed to apply snapshot due to invalid format: {}", e.getMessage());
+            return false;
+        }
     }
 
     @Override

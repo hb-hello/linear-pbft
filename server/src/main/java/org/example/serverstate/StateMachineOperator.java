@@ -151,7 +151,21 @@ public class StateMachineOperator {
         //TODO: catch up state from another server
     }
 
-    public String snapshot() {
+    public boolean isExecuted(long seqNum) {
+        return seqNum <= lastExecutedSeqNum;
+    }
+
+    public boolean applySnapshot(Object snapshot, long seqNum) {
+        lastExecutedSeqNum = seqNum;
+        pendingOperations.clear();
+        return stateMachine.applySnapshot(snapshot);
+    }
+
+    public Object snapshot() {
+        return stateMachine.snapshot();
+    }
+
+    public String snapshotToString() {
         return stateMachine.snapshotToString();
     }
 

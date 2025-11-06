@@ -9,6 +9,8 @@ import org.junit.jupiter.api.Test;
 
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.Map;
+import java.util.HashMap;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -80,6 +82,46 @@ class StateMachineOperatorTest {
         assertEquals(100L, reply.getTimestamp());
         assertEquals("n1", reply.getServerId());
         assertTrue(reply.hasResult());
+    }
+
+    @Test
+    void testApplySnapshot_validSnapshot_updatesState() throws Exception {
+        // Prepare a valid snapshot with modified balances
+        Map<String, Double> snapshot = new HashMap<>(Config.getClientBalances());
+        snapshot.put("A", 999.0);
+        snapshot.put("B", 1.0);
+
+        // Apply snapshot at seqNum 42
+        boolean applied = operator.applySnapshot(snapshot, 42L);
+        assertTrue(applied, "Valid snapshot should be applied successfully");
+
+        // Execute a balance request at seqNum > 42 to inspect state
+        MessageServiceOuterClass.ClientRequest balanceReq = createBalanceRequest("client1", 200L, "A");
+        MessageServiceOuterClass.ClientReply balanceReply = operator.executeOperation(balanceReq, 43L).get();
+        assertNotNull(balanceReply, "Balance request should execute after applying snapshot");
+        assertEquals(999.0, balanceReply.getResult().getBalance(), 0.001,
+                "Balance for A should reflect the applied snapshot");
+    }
+
+    @Test
+    void testApplySnapshot_invalidSnapshot_returnsFalseAndLeavesState() throws Exception {
+        // Capture initial balance for A
+        double initialA = Config.getClientBalances().get("A");
+
+        // Create an invalid snapshot (values are Integer, not Double)
+        Map<String, Object> invalidSnapshot = new HashMap<>();
+        invalidSnapshot.put("A", 123); // Integer value should cause conversion failure
+
+        // Apply invalid snapshot at seqNum 100
+        boolean applied = operator.applySnapshot(invalidSnapshot, 100L);
+        assertFalse(applied, "Invalid snapshot should not be applied");
+
+        // Execute a balance request at seqNum > 100 to verify state unchanged
+        MessageServiceOuterClass.ClientRequest balanceReq = createBalanceRequest("client1", 201L, "A");
+        MessageServiceOuterClass.ClientReply balanceReply = operator.executeOperation(balanceReq, 101L).get();
+        assertNotNull(balanceReply, "Balance request should execute");
+        assertEquals(initialA, balanceReply.getResult().getBalance(), 0.001,
+                "Balance for A should remain unchanged after invalid snapshot attempt");
     }
 
     @Test
@@ -291,4 +333,3 @@ class StateMachineOperatorTest {
     }
 
 }
-
