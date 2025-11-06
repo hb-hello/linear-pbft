@@ -28,6 +28,7 @@ public class CommitHandler {
 
     private boolean isValid(MessageServiceOuterClass.CommitMessage commitMessage) {
         try {
+            state.ensureViewChangeNotInProgress();
             if (!Objects.equals(state.getCollectorServerId(), commitMessage.getSignerId()) && !state.isCollector()) {
                 logger.info("Commit message signer {} is not the collector {}",
                         commitMessage.getSignerId(),

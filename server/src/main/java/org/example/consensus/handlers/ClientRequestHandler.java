@@ -25,6 +25,8 @@ public class ClientRequestHandler {
     }
 
     public void handle(MessageServiceOuterClass.ClientRequest request) {
+        state.ensureViewChangeNotInProgress();
+
         String clientId = request.getClientId();
         long timestamp = request.getTimestamp();
         MessageServiceOuterClass.Operation operation = request.getOperation();

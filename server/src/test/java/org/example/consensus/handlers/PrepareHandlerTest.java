@@ -2,24 +2,20 @@ package org.example.consensus.handlers;
 
 import com.google.protobuf.ByteString;
 import org.example.MessageServiceOuterClass;
-import org.example.config.Config;
 import org.example.serverstate.ServerState;
 import org.example.testutil.MockCommitSender;
 import org.example.testutil.MockPrepareSender;
+import org.example.testutil.MockState;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-
 import static org.junit.jupiter.api.Assertions.*;
 
 class PrepareHandlerTest {
 
-    private static ExecutorService stateExec;
     private ServerState state;
     private MockPrepareSender prepareSender;
     private MockCommitSender commitSender;
@@ -29,25 +25,17 @@ class PrepareHandlerTest {
 
     @BeforeAll
     static void setup() {
-        Config.initialize("src/test/resources/config.properties");
-        stateExec = Executors.newSingleThreadExecutor(r -> {
-            Thread t = new Thread(r);
-            t.setName("-state-manager-0");
-            return t;
-        });
+        MockState.initializeExecutor();
     }
 
     @AfterAll
     static void tearDown() {
-        if (stateExec != null) {
-            stateExec.shutdownNow();
-        }
+        MockState.shutdownExecutor();
     }
 
     @BeforeEach
     void setUp() {
-        // Pass a no-op callback for testing - replies aren't actually sent in unit tests
-        state = new ServerState("n1", false, stateExec, (request, reply) -> {}, (s, seqNum) -> {});
+        state = MockState.create("n1");
         prepareSender = new MockPrepareSender("n1", state);
         commitSender = new MockCommitSender("n1", QUORUM_SIZE, state);
         handler = new PrepareHandler(state, QUORUM_SIZE, prepareSender, commitSender);

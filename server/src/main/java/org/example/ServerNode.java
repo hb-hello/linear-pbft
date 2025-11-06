@@ -3,6 +3,7 @@ package org.example;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.example.config.Config;
+import org.example.consensus.LivenessTimer;
 import org.example.consensus.handlers.*;
 import org.example.consensus.senders.*;
 import org.example.messaging.ServerMessageReceiver;
@@ -19,6 +20,8 @@ public class ServerNode extends Node {
 
     private final ServerMessageReceiver receiver;
 
+    private final LivenessTimer livenessTimer;
+
     private final ClientRequestSender clientRequestSender;
     private final ClientReplySender clientReplySender;
     private final PrePrepareSender prePrepareSender;
@@ -26,18 +29,23 @@ public class ServerNode extends Node {
     private final CommitSender commitSender;
     private final CheckpointSender checkpointSender;
     private final StateMessageSender stateMessageSender;
+    private final ViewChangeSender viewChangeSender;
 
     private final ClientRequestHandler clientRequestHandler;
     private final PrePrepareHandler prePrepareHandler;
     private final PrepareHandler prepareHandler;
     private final CommitHandler commitHandler;
     private final CheckpointHandler checkpointHandler;
+    private final ViewChangeHandler viewChangeHandler;
+    private final StateMessageHandler stateMessageHandler;
 
     private final ServerState state;
 
     public ServerNode(String serverId) {
         super(serverId);
         this.receiver = new ServerMessageReceiver(this, commLogger, auth);
+
+        this.livenessTimer = new LivenessTimer(Config.getServerTimeoutMillis(), this::onLivenessTimeout);
 
         // Create ClientReplySender first
         this.clientReplySender = new ClientReplySender(serverId, commLogger, auth);
@@ -47,16 +55,15 @@ public class ServerNode extends Node {
 
         // Create ServerState with method references for sending replies and checkpoints
         // This breaks the circular dependency - StateMachineOperator gets callbacks that handle both concerns
-        this.state = new ServerState(serverId, false, executorManager.getStateExecutor(),
-                                      this::sendAndRememberReply,
-                this.checkpointSender::sendCheckpoint);
-
+        this.state = new ServerState(serverId, false, executorManager.getStateExecutor(), livenessTimer,
+                                      this::sendAndRememberReply, this.checkpointSender::sendCheckpoint);
 
         this.clientRequestSender = new ClientRequestSender(serverId, commLogger, auth);
         this.prepareSender = new PrepareSender(serverId, state, commLogger, auth);
         this.prePrepareSender = new PrePrepareSender(serverId, state, commLogger, auth, prepareSender);
         this.commitSender = new CommitSender(serverId, MAJORITY_COUNT, clientReplySender, state, commLogger, auth);
         this.stateMessageSender = new StateMessageSender(serverId, state, commLogger, auth);
+        this.viewChangeSender = new ViewChangeSender(serverId, majorityCountForViewChange(), commLogger, auth);
 
 
         this.clientRequestHandler = new ClientRequestHandler(state, clientRequestSender, clientReplySender, prePrepareSender);
@@ -64,6 +71,10 @@ public class ServerNode extends Node {
         this.prepareHandler = new PrepareHandler(state, MAJORITY_COUNT, prepareSender, commitSender);
         this.commitHandler = new CommitHandler(state, MAJORITY_COUNT, commitSender, clientReplySender);
         this.checkpointHandler = new CheckpointHandler(state, MAJORITY_COUNT, checkpointSender);
+        this.viewChangeHandler = new ViewChangeHandler(state, auth, majorityCountForViewChange(), viewChangeSender);
+        this.stateMessageHandler = new StateMessageHandler(state);
+
+        // register state message handler with receiver via ServerNode.handleStateMessage
     }
 
     public void setActive(boolean active) {
@@ -73,7 +84,23 @@ public class ServerNode extends Node {
         prePrepareSender.setActive(active);
         prepareSender.setActive(active);
         commitSender.setActive(active);
+        checkpointSender.setActive(active);
+        stateMessageSender.setActive(active);
+        viewChangeSender.setActive(active);
         receiver.setActive(active);
+    }
+
+    // Timer callbacks
+
+    public void onLivenessTimeout() {
+        logger.warn("Liveness timeout occurred in view {}, triggering view change", state.getViewNumber());
+        for (MessageServiceOuterClass.ClientRequest request : state.getPendingOperations()) {
+            logger.info("Pending request from clientId: {} timestamp: {}",
+                    request.getClientId(), request.getTimestamp());
+        }
+
+        state.setViewChangeInProgress(true);
+        viewChangeSender.broadcastViewChange(state);
     }
 
     public void reset() {
@@ -83,6 +110,10 @@ public class ServerNode extends Node {
 
     public static int majorityCount() {
         return 2 * MAX_FAULTY_NODES + 1;
+    }
+
+    public static int majorityCountForViewChange() {
+        return MAX_FAULTY_NODES + 1;
     }
 
     public void handleClientRequest(MessageServiceOuterClass.ClientRequest request) {
@@ -116,6 +147,18 @@ public class ServerNode extends Node {
     public void handleStateRequest(String targetServerId) {
         executorManager.submitMessageProcessing(() -> {
             stateMessageSender.sendStateMessage(targetServerId);
+        });
+    }
+
+    public void handleStateMessage(MessageServiceOuterClass.StateMessage stateMessage) {
+        executorManager.submitMessageProcessing(() -> {
+            stateMessageHandler.handle(stateMessage);
+        });
+    }
+
+    public void handleViewChange(MessageServiceOuterClass.ViewChangeMessage viewChangeMessage) {
+        executorManager.submitMessageProcessing(() -> {
+            viewChangeHandler.handle(viewChangeMessage);
         });
     }
 
@@ -175,5 +218,4 @@ public class ServerNode extends Node {
 
         serverNode.start(serverNode.receiver);
     }
-
 }

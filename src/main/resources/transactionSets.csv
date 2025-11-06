@@ -1,4 +1,11 @@
-Set Number,Transactions,Live Nodes
-1,"(A, J, 3)","[n1, n2, n3, n4, n5, n6, n7]"
-,"(C, D, 1)",
-,"(B, E, 4)",
+Set Number,Transactions,Live,Byzantine,Attack
+1,"(A, B, 1)","[n1, n2, n3, n4]",[],[]
+,"(B, C, 2)",,,
+,"(C, D, 3)",,,
+,"(D, E, 4)",,,
+,(E),,,
+2,"(F, G, 12)","[n1, n2, n3, n4, n5]",[],[]
+,"(G, H, 1)",,,
+,"(H, I, 11)",,,
+,"(I, J, 11)",,,
+,(J),,,

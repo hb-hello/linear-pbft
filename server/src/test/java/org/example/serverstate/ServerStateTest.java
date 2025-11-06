@@ -3,44 +3,30 @@ package org.example.serverstate;
 import org.example.MessageServiceOuterClass;
 import org.example.Node;
 import org.example.config.Config;
+import org.example.testutil.MockState;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 class ServerStateTest {
 
-    private static ExecutorService stateExec;
-
     @BeforeAll
     static void setup() {
-        // Initialize configuration so Node.computePrimaryServerId() works and balances are loaded
-        Config.initialize("src/test/resources/config.properties");
-        // Use a single-threaded executor whose thread name starts with "state-manager"
-        // to satisfy ServerState.onStateThread() and avoid re-entrancy deadlocks in tests.
-        stateExec = Executors.newSingleThreadExecutor(r -> {
-            Thread t = new Thread(r);
-            t.setName("-state-manager-0");
-            return t;
-        });
+        MockState.initializeExecutor();
     }
 
     @AfterAll
     static void tearDown() {
-        if (stateExec != null) {
-            stateExec.shutdownNow();
-        }
+        MockState.shutdownExecutor();
     }
 
     private ServerState newState(String serverId) {
-        // Pass a no-op callback for testing - replies aren't actually sent in unit tests
-        return new ServerState(serverId, false, stateExec, (request, reply) -> {}, (s, seqNum) -> {});
+        return MockState.create(serverId);
     }
 
     private MessageServiceOuterClass.Operation transferOp(String from, String to, double amount) {

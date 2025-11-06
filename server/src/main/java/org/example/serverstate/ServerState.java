@@ -11,8 +11,7 @@ import org.example.messaging.MessageUtil;
 import org.example.messaging.ServerMessage;
 
 import java.time.Duration;
-import java.util.Map;
-import java.util.Objects;
+import java.util.*;
 import java.util.concurrent.*;
 
 import static org.example.Node.computePrimaryServerId;
@@ -36,6 +35,7 @@ public final class ServerState {
     private String primaryServerId;
     private String collectorServerId;
     private boolean isFaulty;
+    private boolean viewChangeInProgress;
     private long seqNum;
     private final long checkPointInterval = Config.getCheckpointInterval();
     private long latestStableCheckpointSeqNum = 0L;
@@ -64,9 +64,9 @@ public final class ServerState {
     public record Header(long view, String primary, boolean faulty, long seq) {
     }
 
-    public ServerState(String serverId, boolean isFaulty, ExecutorService stateExec,
-                       java.util.function.BiConsumer<org.example.MessageServiceOuterClass.ClientRequest,
-                                                      org.example.MessageServiceOuterClass.ClientReply> replySender,
+    public ServerState(String serverId, boolean isFaulty, ExecutorService stateExec, LivenessTimer livenessTimer,
+                       java.util.function.BiConsumer<MessageServiceOuterClass.ClientRequest,
+                                                      MessageServiceOuterClass.ClientReply> replySender,
                        java.util.function.BiConsumer<ServerState, Long> checkpointSender) {
         this.stateExec = stateExec;
         // Initialize header using synchronous entry to ensure serialization early
@@ -76,9 +76,10 @@ public final class ServerState {
             this.primaryServerId = computePrimaryServerId(viewNumber);
             this.collectorServerId = computeCollectorServerId(viewNumber);
             this.isFaulty = isFaulty;
+            this.viewChangeInProgress = false;
             this.seqNum = 0L;
             this.stateMachineOperator = new StateMachineOperator(this, operationLog, replySender, checkpointSender);
-            this.livenessTimer = new LivenessTimer(Config.getServerTimeoutMillis(), this::onLivenessTimeout);
+            this.livenessTimer = livenessTimer;
             return null;
         });
     }
@@ -143,19 +144,6 @@ public final class ServerState {
 
     private RuntimeException wrap(Throwable t) {
         return (t instanceof RuntimeException re) ? re : new RuntimeException(t);
-    }
-
-    // Timer callbacks
-
-    public void onLivenessTimeout() {
-        runSync(() -> {
-            logger.warn("Liveness timeout occurred in view {}, triggering view change", viewNumber);
-            for (MessageServiceOuterClass.ClientRequest request : stateMachineOperator.getPendingOperations()) {
-                logger.info("Pending request from clientId: {} timestamp: {}",
-                        request.getClientId(), request.getTimestamp());
-            }
-            // TODO: trigger view change
-        });
     }
 
     // Header operations — blocking by default
@@ -249,6 +237,19 @@ public final class ServerState {
         return runSync(() -> ++seqNum);
     }
 
+    public long nextView() {
+        return runSync(() -> ++viewNumber);
+    }
+
+    public long nextViewAndUpdatePrimary() {
+        return runSync(() -> {
+            long newView = ++viewNumber;
+            primaryServerId = computePrimaryServerId(newView);
+            collectorServerId = computeCollectorServerId(newView);
+            return newView;
+        });
+    }
+
     public boolean seqNumBetweenWatermarks(long sequenceNumber) {
         return runSync(() -> sequenceNumber > latestStableCheckpointSeqNum && sequenceNumber <= highWatermark);
     }
@@ -259,6 +260,35 @@ public final class ServerState {
 
     public long getHighWatermark() {
         return highWatermark;
+    }
+
+    public Iterator<Long> getSeqNumsBetweenWatermarks() {
+        return runSync(() -> {
+            return new Iterator<>() {
+                private long current = latestStableCheckpointSeqNum + 1;
+
+                @Override
+                public boolean hasNext() {
+                    return current <= highWatermark;
+                }
+
+                @Override
+                public Long next() {
+                    if (!hasNext()) {
+                        throw new NoSuchElementException();
+                    }
+                    return current++;
+                }
+            };
+        });
+    }
+
+    public boolean isViewChangeInProgress() {
+        return viewChangeInProgress;
+    }
+
+    public void setViewChangeInProgress(boolean viewChangeInProgress) {
+        this.viewChangeInProgress = viewChangeInProgress;
     }
 
     public void ensureInView(long viewNumber) {
@@ -277,6 +307,15 @@ public final class ServerState {
                         sequenceNumber, latestStableCheckpointSeqNum, highWatermark);
                 throw new IllegalStateException("Sequence number " + sequenceNumber +
                         " out of watermarks (low: " + latestStableCheckpointSeqNum + ", high: " + highWatermark + ")");
+            }
+        });
+    }
+
+    public void ensureViewChangeNotInProgress() {
+        runSync(() -> {
+            if (viewChangeInProgress) {
+                logger.warn("View change in progress, cannot proceed with operation");
+                throw new IllegalStateException("View change in progress");
             }
         });
     }
@@ -302,6 +341,12 @@ public final class ServerState {
             .thenApply(reply -> {
                 // After operation completes, update timer based on pending operations
                 runSync(() -> {
+
+                    if (livenessTimer == null) {
+                        logger.warn("Liveness timer is null, cannot update after operation");
+                        return;
+                    }
+
                     boolean hasPending = stateMachineOperator.areOperationsPending();
                     logger.info("Operation completed for seqNum {}. Pending operations: {}", seqNum, hasPending);
                     if(hasPending) {
@@ -330,6 +375,10 @@ public final class ServerState {
 
     public boolean applySnapshotToStateMachine(Object snapshot, long seqNum) {
         return runSync(() -> stateMachineOperator.applySnapshot(snapshot, seqNum));
+    }
+
+    public List<MessageServiceOuterClass.ClientRequest> getPendingOperations() {
+        return runSync(() -> stateMachineOperator.getPendingOperations());
     }
 
     // Reply tracking — store the highest timestamp per client and a reply object
@@ -423,7 +472,7 @@ public final class ServerState {
     public boolean appendClientRequest(Message msg) {
         return runSync(() -> {
             String digestString = MessageUtil.digestToString(MessageUtil.generateDigest(msg));
-            livenessTimer.startIfNotRunning();
+            if (livenessTimer != null) livenessTimer.startIfNotRunning();
             return serverMessageTracker.appendWithoutConsensus(ServerMessage.wrap(msg), digestString);
         });
     }
@@ -455,6 +504,10 @@ public final class ServerState {
 
     public ByteString getQuorumDigest(String messageType, long viewNumber, long sequenceNumber) {
         return runSync(() -> serverMessageTracker.getQuorumValue(messageType, viewNumber, sequenceNumber));
+    }
+
+    public List<ServerMessage> getQuorumMessages(String messageType, long viewNumber, long sequenceNumber) {
+        return runSync(() -> serverMessageTracker.getQuorumMessages(messageType, viewNumber, sequenceNumber));
     }
 
     public ServerMessageTracker getServerMessageTracker() {
@@ -556,6 +609,42 @@ public final class ServerState {
                 logger.info("Not enough Prepare messages for view {} seq {}, cannot be prepared", viewNumber, sequenceNumber);
                 return false;
             }
+        });
+    }
+
+    public MessageServiceOuterClass.PreparedCertificate getPreparedCertificate(long viewNumber, long sequenceNumber) {
+        return runSync(() -> {
+            MessageServiceOuterClass.PreparedCertificate.Builder certBuilder = MessageServiceOuterClass.PreparedCertificate.newBuilder();
+
+            ServerMessage prePrepareMsg = findPrePrepare(viewNumber, sequenceNumber);
+            if (prePrepareMsg == null) {
+                logger.warn("No PrePrepare message found for view {} seq {}, cannot build PreparedCertificate", viewNumber, sequenceNumber);
+                return null;
+            }
+
+            if (!(prePrepareMsg.getMessage() instanceof MessageServiceOuterClass.PrePrepareMessage prePrepareMessage)) {
+                logger.warn("PrePrepare message is not of expected type for view {} seq {}, cannot build PreparedCertificate", viewNumber, sequenceNumber);
+                return null;
+            }
+
+            certBuilder.setPrePrepareMessage(prePrepareMessage);
+
+            if (hasAggregatedPrepare(viewNumber, sequenceNumber)) {
+                ServerMessage aggregatedPrepareMsg = findAggregatedPrepare(viewNumber, sequenceNumber);
+                if (aggregatedPrepareMsg == null) {
+                    logger.warn("No aggregated Prepare message found for view {} seq {}, cannot build PreparedCertificate", viewNumber, sequenceNumber);
+                    return null;
+                }
+                if (aggregatedPrepareMsg.getMessage() instanceof MessageServiceOuterClass.PrepareMessage aggregatedPrepareMessage) {
+                    certBuilder.setPrepareMessage(aggregatedPrepareMessage);
+                }
+
+                return certBuilder.build();
+            }
+
+            logger.info("No aggregated Prepare found for view {} seq {}, cannot build PreparedCertificate", viewNumber, sequenceNumber);
+            return null;
+
         });
     }
 

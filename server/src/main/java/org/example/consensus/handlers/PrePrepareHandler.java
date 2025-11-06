@@ -37,6 +37,7 @@ public class PrePrepareHandler {
 
     private boolean isValid(MessageServiceOuterClass.PrePrepareMessage prePrepareMessage) {
         try {
+            state.ensureViewChangeNotInProgress();
             state.ensureInView(prePrepareMessage.getViewNumber());
             ServerMessage alreadyLoggedPrePrepare = state.findPrePrepare(prePrepareMessage.getViewNumber(), prePrepareMessage.getSequenceNumber());
             if (alreadyLoggedPrePrepare != null && alreadyLoggedPrePrepare.getDigest().isPresent()) {

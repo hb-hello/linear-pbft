@@ -152,6 +152,22 @@ public class ServerMessageTracker {
         return signaturesBySender;
     }
 
+    public List<ServerMessage> getQuorumMessages(String messageType, long viewNumber, long sequenceNumber) {
+        String messageIndex = String.format("%s:%d:%d", messageType, viewNumber, sequenceNumber);
+        Set<String> messageIndicesWithSender = consensusTracker.getMessageIndicesWithSender(messageIndex);
+
+        List<ServerMessage> quorumMessages = new ArrayList<>();
+        for (String messageIndexWithSender : messageIndicesWithSender) {
+            ServerMessage msg = index.get(messageIndexWithSender);
+            if (msg != null) {
+                quorumMessages.add(msg);
+            } else {
+                logger.warn("Message with index {} not found in tracker, but was in consensus", messageIndexWithSender);
+            }
+        }
+        return quorumMessages;
+    }
+
     /**
      * Get the signatures of messages that contributed to reaching quorum for a specific message type/view/sequence.
      *

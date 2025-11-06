@@ -74,7 +74,7 @@ public class MessageSender {
         }
     }
 
-    protected void broadcastWithTSS(Message message, BiConsumer<MessageServiceGrpc.MessageServiceFutureStub, Message> method) {
+    protected void signAndBroadcast(Message message, BiConsumer<MessageServiceGrpc.MessageServiceFutureStub, Message> method) {
         ensureActive();
         Message signedMessage = auth.signWithTSS(message);
         logger.info("Signed broadcast message with TSS: {}", message.getClass());

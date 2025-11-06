@@ -20,6 +20,11 @@ service MessageService {
     rpc StateRequest(StateRequestMessage) returns (google.protobuf.Empty);
     rpc StateResponse(StateMessage) returns (google.protobuf.Empty);
 
+    // view change
+    rpc ViewChange(ViewChangeMessage) returns (google.protobuf.Empty);
+    rpc NewView(NewViewMessage) returns (google.protobuf.Empty);
+    rpc GetClientRequest(SequenceNumber) returns (ClientRequest);
+
     // for cli
     rpc SetActiveFlag(ActiveFlag) returns (Acknowledgement);
     rpc Reset(google.protobuf.Empty) returns (Acknowledgement) {};
@@ -146,4 +151,28 @@ message StateMessage {
     bytes digest = 2;
     string signer_id = 3;
     bytes signature = 4;
+}
+
+// view change
+
+message PreparedCertificate {
+    PrePrepareMessage pre_prepare_message = 1;
+    PrepareMessage prepare_message = 2;
+}
+
+message ViewChangeMessage {
+    int64 view_number = 1;
+    int64 last_stable_sequence_number = 2;
+    repeated CheckpointMessage checkpoint_messages = 3;
+    repeated PreparedCertificate prepared_certificates = 4;
+    string signer_id = 5;
+    bytes signature = 6;
+}
+
+message NewViewMessage {
+    int64 view_number = 1;
+    repeated ViewChangeMessage view_change_messages = 2;
+    repeated PrePrepareMessage pre_prepare_messages = 3;
+    string signer_id = 4;
+    bytes signature = 5;
 }

@@ -26,6 +26,7 @@ public class PrepareHandler {
 
     private boolean isValid(MessageServiceOuterClass.PrepareMessage prepareMessage) {
         try {
+            state.ensureViewChangeNotInProgress();
             if (!Objects.equals(state.getCollectorServerId(), prepareMessage.getSignerId()) && !state.isCollector()) {
                 logger.info("Prepare message signer {} is not the collector {}",
                         prepareMessage.getSignerId(),

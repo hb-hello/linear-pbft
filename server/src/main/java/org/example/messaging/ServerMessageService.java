@@ -114,6 +114,11 @@ public class ServerMessageService extends MessageServiceGrpc.MessageServiceImplB
                 )
         );
 
+        if (!auth.verify(request)) {
+            logger.warn("Invalid signature for Commit message from server {}", request.getSignerId());
+            return;
+        }
+
         serverNode.handleCommit(request);
     }
 
@@ -125,7 +130,56 @@ public class ServerMessageService extends MessageServiceGrpc.MessageServiceImplB
                 )
         );
 
+        if (!auth.verify(request)) {
+            logger.warn("Invalid signature for Checkpoint message from server {}", request.getSignerId());
+            return;
+        }
+
         serverNode.handleCheckpoint(request);
+    }
+
+    public void stateRequest(MessageServiceOuterClass.StateRequestMessage request, StreamObserver<Empty> responseObserver) {
+        logger.info("MESSAGE: <STATE REQUEST> received from server {}",
+                request.getRequesterId()
+        );
+        serverNode.handleStateRequest(request.getRequesterId());
+    }
+
+    public void stateResponse(MessageServiceOuterClass.StateMessage request, StreamObserver<Empty> responseObserver) {
+        logger.info("MESSAGE: <STATE RESPONSE> received from server {}",
+                request.getSignerId()
+        );
+
+        if (!auth.verify(request)) {
+            logger.warn("Invalid signature for State message from server {}", request.getSignerId());
+            return;
+        }
+
+        serverNode.handleStateMessage(request);
+    }
+
+    public void viewChange(MessageServiceOuterClass.ViewChangeMessage request, StreamObserver<Empty> responseObserver) {
+        communicationLogger.add(
+                String.format("MESSAGE: <VIEW CHANGE, %d, %d, C, P, %s> received from server %s",
+                        request.getViewNumber(),
+                        request.getLastStableSequenceNumber(),
+                        request.getSignerId(),
+                        request.getSignerId()
+                )
+        );
+
+        logger.info("MESSAGE: <VIEW CHANGE, {}, {}> received from server {}",
+                request.getViewNumber(),
+                request.getLastStableSequenceNumber(),
+                request.getSignerId()
+        );
+
+        if (!auth.verify(request)) {
+            logger.warn("Invalid signature for View Change message from server {}", request.getSignerId());
+            return;
+        }
+
+        serverNode.handleViewChange(request);
     }
 
 //    @Override
