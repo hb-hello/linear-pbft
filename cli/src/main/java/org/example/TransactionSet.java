@@ -4,6 +4,8 @@ import org.example.statemachine.StateMachineOperation;
 import org.example.statemachine.TransferOp;
 
 import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Represents a transaction set with operations, node configuration, and attack information.
@@ -14,29 +16,96 @@ public record TransactionSet(int setNumber, List<StateMachineOperation> transact
                              List<String> activeNodesList, Set<String> byzantineNodes,
                              String[] attackDescriptionHolder) {
 
+    // Regex patterns for parsing attack descriptions
+    private static final Pattern ATTACK_WITH_TARGET_PATTERN = Pattern.compile("(\\w+)\\(([^)]+)\\)");
+
     public TransactionSet(int setNumber) {
         this(setNumber, new ArrayList<>(), new ArrayList<>(), new HashSet<>(), new String[]{""});
     }
 
-    public void addTransactionEvent(StateMachineOperation event) {
-        this.transactionEvents.add(event);
-    }
+    /**
+     * Parses the attack description and creates Malice protobuf objects.
+     *
+     * Attack format examples:
+     * - "crash" -> crash attack, no target
+     * - "time; dark(n6)" -> time attack (no target) and dark attack targeting n6
+     * - "equivocation(n6, n7)" -> equivocation attacks targeting n6 and n7
+     * - "dark(n1, n2)" -> dark attacks targeting n1 and n2
+     *
+     * Creates one Malice object per distinct attack type.
+     * All byzantine nodes are added to the malicious_server_id repeated field.
+     * All targets (if any) are added to the target_server_id repeated field.
+     *
+     * @return List of Malice protobuf messages (one per distinct attack type)
+     */
+    public List<MessageServiceOuterClass.Malice> getMaliceMessages() {
+        List<MessageServiceOuterClass.Malice> maliceList = new ArrayList<>();
 
-    public void addActiveNodesList(List<String> nodes) {
-        this.activeNodesList.addAll(nodes);
-    }
+        String attackDesc = attackDescriptionHolder[0];
 
-    public void setByzantineNodes(Set<String> nodes) {
-        this.byzantineNodes.clear();
-        this.byzantineNodes.addAll(nodes);
-    }
+        // Handle empty or "[]" attack descriptions
+        if (attackDesc == null || attackDesc.trim().isEmpty() || "[]".equals(attackDesc.trim())) {
+            return maliceList;
+        }
 
-    public void setAttackDescription(String description) {
-        this.attackDescriptionHolder[0] = description;
-    }
+        // Remove surrounding brackets if present
+        attackDesc = attackDesc.replaceAll("^\\[|\\]$", "").trim();
 
-    public String getAttackDescription() {
-        return this.attackDescriptionHolder[0];
+        if (attackDesc.isEmpty()) {
+            return maliceList;
+        }
+
+        // Split by semicolon to handle multiple attack types
+        String[] attacks = attackDesc.split(";");
+
+        for (String attack : attacks) {
+            attack = attack.trim();
+
+            if (attack.isEmpty()) {
+                continue;
+            }
+
+            // Try to match pattern: attackType(target1, target2, ...)
+            Matcher matcher = ATTACK_WITH_TARGET_PATTERN.matcher(attack);
+
+            MessageServiceOuterClass.Malice.Builder maliceBuilder = MessageServiceOuterClass.Malice.newBuilder();
+
+            if (matcher.matches()) {
+                // Attack with targets
+                String attackType = matcher.group(1);
+                String targetsStr = matcher.group(2);
+
+                // Parse targets (comma-separated)
+                String[] targets = targetsStr.split(",");
+
+                // Set attack type
+                maliceBuilder.setMaliceType(attackType);
+
+                // Add all byzantine nodes to malicious_server_id repeated field
+                maliceBuilder.addAllMaliciousServerId(byzantineNodes);
+
+                // Add all targets to target_server_id repeated field
+                for (String target : targets) {
+                    maliceBuilder.addTargetServerId(target.trim());
+                }
+
+                maliceList.add(maliceBuilder.build());
+            } else {
+                // Attack without targets (e.g., "crash", "time", "sign")
+                String attackType = attack.trim();
+
+                // Set attack type
+                maliceBuilder.setMaliceType(attackType);
+
+                // Add all byzantine nodes to malicious_server_id repeated field
+                maliceBuilder.addAllMaliciousServerId(byzantineNodes);
+
+                // No targets for this attack type
+                maliceList.add(maliceBuilder.build());
+            }
+        }
+
+        return maliceList;
     }
 
     /**
@@ -98,5 +167,25 @@ public record TransactionSet(int setNumber, List<StateMachineOperation> transact
             sb.append(String.format("  %d. %s\n", i + 1, transactionEvents.get(i)));
         }
         return sb.toString();
+    }
+
+    // Helper methods to mutate the mutable collections within the record
+
+    public void addTransactionEvent(StateMachineOperation event) {
+        this.transactionEvents.add(event);
+    }
+
+    public void addActiveNodesList(List<String> nodes) {
+        this.activeNodesList.clear();
+        this.activeNodesList.addAll(nodes);
+    }
+
+    public void setByzantineNodes(Set<String> nodes) {
+        this.byzantineNodes.clear();
+        this.byzantineNodes.addAll(nodes);
+    }
+
+    public void setAttackDescription(String description) {
+        this.attackDescriptionHolder[0] = description;
     }
 }

@@ -4,10 +4,7 @@ import com.google.protobuf.Empty;
 import io.grpc.stub.StreamObserver;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.example.CLILogging;
-import org.example.MessageServiceGrpc;
-import org.example.MessageServiceOuterClass;
-import org.example.ServerNode;
+import org.example.*;
 import org.example.crypto.MessageAuthenticator;
 
 import static org.example.CLILogging.formatNewViews;
@@ -123,6 +120,7 @@ public class ServerMessageService extends MessageServiceGrpc.MessageServiceImplB
         serverNode.handleCommit(request);
     }
 
+    @Override
     public void checkpoint(MessageServiceOuterClass.CheckpointMessage request, StreamObserver<Empty> responseObserver) {
         communicationLogger.add(
                 String.format("MESSAGE: <CHECKPOINT, %d> received from server %s",
@@ -139,6 +137,7 @@ public class ServerMessageService extends MessageServiceGrpc.MessageServiceImplB
         serverNode.handleCheckpoint(request);
     }
 
+    @Override
     public void stateRequest(MessageServiceOuterClass.StateRequestMessage request, StreamObserver<Empty> responseObserver) {
         logger.info("MESSAGE: <STATE REQUEST> received from server {}",
                 request.getRequesterId()
@@ -146,6 +145,7 @@ public class ServerMessageService extends MessageServiceGrpc.MessageServiceImplB
         serverNode.handleStateRequest(request.getRequesterId());
     }
 
+    @Override
     public void stateResponse(MessageServiceOuterClass.StateMessage request, StreamObserver<Empty> responseObserver) {
         logger.info("MESSAGE: <STATE RESPONSE> received from server {}",
                 request.getSignerId()
@@ -159,6 +159,7 @@ public class ServerMessageService extends MessageServiceGrpc.MessageServiceImplB
         serverNode.handleStateMessage(request);
     }
 
+    @Override
     public void viewChange(MessageServiceOuterClass.ViewChangeMessage request, StreamObserver<Empty> responseObserver) {
         communicationLogger.add(
                 String.format("MESSAGE: <VIEW CHANGE, %d, %d, C, P, %s> received from server %s",
@@ -183,23 +184,23 @@ public class ServerMessageService extends MessageServiceGrpc.MessageServiceImplB
         serverNode.handleViewChange(request);
     }
 
-//    @Override
-//    public void newView(MessageServiceOuterClass.NewViewMessage request, StreamObserver<MessageServiceOuterClass.AcceptedMessage> responseObserver) {
-//        communicationLogger.add(
-//                String.format("MESSAGE: <NEW VIEW, <%d, %s>, acceptLog(%d messages)> received from server %s",
-//                        request.getBallot().getInstance(),
-//                        request.getBallot().getSenderId(),
-//                        request.getAcceptLogCount(),
-//                        request.getBallot().getSenderId())
-//        );
-//        logger.info("MESSAGE: <NEW VIEW, <{}, {}>, acceptLog({} messages)> received from server {}",
-//                request.getBallot().getInstance(),
-//                request.getBallot().getSenderId(),
-//                request.getAcceptLogCount(),
-//                request.getBallot().getSenderId());
-//        node.handleNewView(request, responseObserver);
-//    }
-//
+    @Override
+    public void newView(MessageServiceOuterClass.NewViewMessage request, StreamObserver<Empty> responseObserver) {
+        communicationLogger.add(
+                String.format("MESSAGE: <NEW VIEW, %d> received from server %s",
+                        request.getViewNumber(),
+                        request.getSignerId()
+                )
+        );
+
+        if (!auth.verify(request)) {
+            logger.warn("Invalid signature for New View message from server {}", request.getSignerId());
+            return;
+        }
+
+        serverNode.handleNewView(request);
+    }
+
 
     @Override
     public void getLog(Empty request, StreamObserver<MessageServiceOuterClass.CLIResponse> responseObserver) {
@@ -225,7 +226,7 @@ public class ServerMessageService extends MessageServiceGrpc.MessageServiceImplB
         responseObserver.onCompleted();
     }
 //
-//    @Override
+    @Override
     public void getNewViews(Empty request, StreamObserver<MessageServiceOuterClass.CLIResponse> responseObserver) {
         String newViewsString = formatNewViews(serverNode.getNewViews());
         MessageServiceOuterClass.CLIResponse response = MessageServiceOuterClass.CLIResponse.newBuilder().setCliResponse(newViewsString).build();
@@ -240,6 +241,14 @@ public class ServerMessageService extends MessageServiceGrpc.MessageServiceImplB
 //        logger.info("Sending operation log:\n{}", operationLogString);
         MessageServiceOuterClass.CLIResponse response = MessageServiceOuterClass.CLIResponse.newBuilder().setCliResponse(operationLogString).build();
         responseObserver.onNext(response);
+        responseObserver.onCompleted();
+    }
+
+    @Override
+    public void injectMalice(MessageServiceOuterClass.Malice malice, StreamObserver<MessageServiceOuterClass.Acknowledgement> responseObserver) {
+        MaliceInjector.addMalice(malice);
+        MessageServiceOuterClass.Acknowledgement ack = MessageServiceOuterClass.Acknowledgement.newBuilder().setStatus(true).build();
+        responseObserver.onNext(ack);
         responseObserver.onCompleted();
     }
 

@@ -70,11 +70,16 @@ public final class CliApp {
                         System.out.printf("  Byzantine nodes: %s%n",
                             set.byzantineNodes().isEmpty() ? "[]" : set.byzantineNodes());
                         System.out.printf("  Attack: %s%n",
-                            set.getAttackDescription().isEmpty() || set.getAttackDescription().equals("[]")
-                                ? "None" : set.getAttackDescription());
+                            set.attackDescriptionHolder()[0]);
+
+                        List<MessageServiceOuterClass.Malice> maliceMessages = set.getMaliceMessages();
 
                         ServerManager.resetAllServers();
                         ServerManager.activateServers(set);
+
+                        for (MessageServiceOuterClass.Malice malice : maliceMessages) {
+                            ServerManager.setMalice(malice);
+                        }
 
                         // Submit events exactly in file order
                         for (StateMachineOperation ev : set.transactionEvents()) {

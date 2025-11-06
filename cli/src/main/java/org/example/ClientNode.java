@@ -105,7 +105,8 @@ public class ClientNode extends Node {
             }
         } else {
             // Send to known primary
-            this.sender.sendRequest(primaryServerId, clientRequest);
+            MessageServiceOuterClass.ClientRequest clientRequestReadOnly = clientRequest.toBuilder().setIsReadOnly(true).build();
+            this.sender.sendRequest(primaryServerId, clientRequestReadOnly);
             logger.info("Sent client request to primary {} for id {}", primaryServerId, requestId);
         }
 

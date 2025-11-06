@@ -70,64 +70,81 @@ public class ServerManager {
     }
 
     public static void printDB() {
+        // Collect responses for all servers, preserving order
+        java.util.Map<String, MessageServiceOuterClass.CLIResponse> responses = new java.util.LinkedHashMap<>();
         for (String serverId : Config.getServerIds()) {
-//            Request DB from server and print as a table row
             try {
                 MessageServiceOuterClass.CLIResponse response =
                         stubManager.getBlockingStub(serverId).getDB(Empty.getDefaultInstance());
-                printDBAsTable(serverId, response);
+                responses.put(serverId, response);
             } catch (Exception e) {
                 throw new RuntimeException(e);
             }
         }
+
+        // Print a single consolidated table for all server responses
+        printDBAsTable(responses);
     }
 
     /**
-     * Print the provided server's CLIResponse in a two-column ASCII table.
+     * Print a consolidated two-column ASCII table for multiple servers.
      * First column: Server ID
      * Second column: Response (may wrap if long or contain newlines)
      */
-    public static void printDBAsTable(String serverId, MessageServiceOuterClass.CLIResponse response) {
+    public static void printDBAsTable(java.util.Map<String, MessageServiceOuterClass.CLIResponse> responses) {
         String col1 = "Server ID";
         String col2 = "Response";
-        String responseStr = response == null ? "" : response.getCliResponse();
 
-        int width1 = Math.max(col1.length(), serverId.length());
-        // Determine the longest line in the response (cap to avoid extremely wide tables)
-        int maxLineLen = 0;
-        String[] respLines = responseStr.split("\\r?\\n");
-        for (String line : respLines) {
-            if (line.length() > maxLineLen) maxLineLen = line.length();
-        }
+        // Determine column widths
+        int width1 = col1.length();
+        int maxLineLen = 0; // for response column
         int cap = 120; // cap the response column width to 120 characters
+
+        for (String serverId : responses.keySet()) {
+            if (serverId.length() > width1) width1 = serverId.length();
+            MessageServiceOuterClass.CLIResponse resp = responses.get(serverId);
+            String respStr = resp == null ? "" : resp.getCliResponse();
+            String[] lines = respStr.split("\\r?\\n");
+            for (String line : lines) {
+                if (line.length() > maxLineLen) maxLineLen = line.length();
+            }
+        }
+
         int width2 = Math.max(col2.length(), Math.min(maxLineLen, cap));
 
-        // Print header
+        // Print header (once)
         printRowBorder(width1, width2);
         System.out.printf("| %s | %s |%n", padRight(col1, width1), padRight(col2, width2));
         printRowBorder(width1, width2);
 
-        // Print response content, wrapping lines longer than width2
-        boolean firstRow = true;
-        for (String line : respLines) {
-            if (line.isEmpty()) {
-                System.out.printf("| %s | %s |%n", padRight(firstRow ? serverId : "", width1), padRight("", width2));
-                firstRow = false;
+        // Print each server's response as table rows
+        for (String serverId : responses.keySet()) {
+            MessageServiceOuterClass.CLIResponse resp = responses.get(serverId);
+            String respStr = resp == null ? "" : resp.getCliResponse();
+            String[] respLines = respStr.split("\\r?\\n");
+
+            // If response is empty, print a single row with server id and empty response
+            if (respLines.length == 0 || (respLines.length == 1 && respLines[0].isEmpty())) {
+                System.out.printf("| %s | %s |%n", padRight(serverId, width1), padRight("", width2));
                 continue;
             }
-            int start = 0;
-            while (start < line.length()) {
-                int end = Math.min(start + width2, line.length());
-                String chunk = line.substring(start, end);
-                System.out.printf("| %s | %s |%n", padRight(firstRow ? serverId : "", width1), padRight(chunk, width2));
-                start = end;
-                firstRow = false;
-            }
-        }
 
-        // If response was empty, still print a row with the server id
-        if (respLines.length == 0) {
-            System.out.printf("| %s | %s |%n", padRight(serverId, width1), padRight("", width2));
+            boolean firstRow = true;
+            for (String line : respLines) {
+                if (line.isEmpty()) {
+                    System.out.printf("| %s | %s |%n", padRight(firstRow ? serverId : "", width1), padRight("", width2));
+                    firstRow = false;
+                    continue;
+                }
+                int start = 0;
+                while (start < line.length()) {
+                    int end = Math.min(start + width2, line.length());
+                    String chunk = line.substring(start, end);
+                    System.out.printf("| %s | %s |%n", padRight(firstRow ? serverId : "", width1), padRight(chunk, width2));
+                    start = end;
+                    firstRow = false;
+                }
+            }
         }
 
         printRowBorder(width1, width2);
@@ -193,4 +210,44 @@ public class ServerManager {
         }
     }
 
+    /**
+     * Inject a Malice message into servers.
+     * If the Malice.malicious_server_id list is empty, broadcast to all servers.
+     * Otherwise send only to the servers listed as malicious (byzantine nodes).
+     */
+    public static void setMalice(MessageServiceOuterClass.Malice malice) {
+        try {
+            java.util.List<String> byzantineNodes = malice.getMaliciousServerIdList();
+
+            // If no byzantine nodes specified, broadcast to all known servers
+            if (byzantineNodes.isEmpty()) {
+                for (String serverId : Config.getServerIds()) {
+                    MessageServiceOuterClass.Acknowledgement ack =
+                            stubManager.getBlockingStub(serverId).injectMalice(malice);
+                    if (!ack.getStatus()) {
+                        logger.error("Failed to inject malice to server {}", serverId);
+                        throw new RuntimeException("Failed to inject malice to server " + serverId);
+                    }
+                }
+                logger.info("Broadcasted malice '{}' to all servers", malice.getMaliceType());
+            } else {
+                // Send only to specified byzantine/malicious servers
+                for (String serverId : byzantineNodes) {
+                    MessageServiceOuterClass.Acknowledgement ack =
+                            stubManager.getBlockingStub(serverId).injectMalice(malice);
+                    if (!ack.getStatus()) {
+                        logger.error("Failed to inject malice to server {}", serverId);
+                        throw new RuntimeException("Failed to inject malice to server " + serverId);
+                    }
+                    logger.info("Injected malice '{}' to server {}", malice.getMaliceType(), serverId);
+                }
+            }
+        } catch (RuntimeException e) {
+            logger.error("Error when injecting malice: {}", e.getMessage());
+            throw new RuntimeException(e);
+        } catch (Exception e) {
+            logger.error("Unexpected error when injecting malice", e);
+            throw new RuntimeException(e);
+        }
+    }
 }

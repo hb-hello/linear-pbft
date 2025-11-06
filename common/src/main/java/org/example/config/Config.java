@@ -32,6 +32,7 @@ public class Config {
     private static long clientTimeoutMillis;
     private static long serverTimeoutMillis;
     private static long viewChangeTimeoutMillis;
+    private static long maliceTimeDelayMillis;
     private static int maxRetries;
     private static int checkpointInterval;
     private static int watermarkWindow;
@@ -109,6 +110,12 @@ public class Config {
         viewChangeTimeoutMillis = Long.parseLong(props.getProperty(
                 "view.change.timeout.millis",
                 "2000"
+        ));
+
+        // Malice time delay (milliseconds) used for time-based malice injections
+        maliceTimeDelayMillis = Long.parseLong(props.getProperty(
+                "malice.time.delay.millis",
+                "1000"
         ));
 
         maxRetries = Integer.parseInt(props.getProperty(
@@ -358,6 +365,11 @@ public class Config {
         return viewChangeTimeoutMillis;
     }
 
+    public static long getMaliceTimeDelayMillis() {
+        ensureInitialized();
+        return maliceTimeDelayMillis;
+    }
+
     public static int getCheckpointInterval() {
         ensureInitialized();
         return checkpointInterval;
@@ -393,4 +405,3 @@ public class Config {
                 "73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001", 16);
     }
 }
-

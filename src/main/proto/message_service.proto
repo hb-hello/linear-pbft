@@ -33,6 +33,7 @@ service MessageService {
     rpc GetStatus(SequenceNumber) returns (CLIResponse) {};
     rpc GetNewViews(google.protobuf.Empty) returns (CLIResponse) {};
     rpc GetOperationLog(google.protobuf.Empty) returns (CLIResponse) {};
+    rpc InjectMalice(Malice) returns (Acknowledgement) {};
 }
 
 
@@ -53,6 +54,12 @@ message SequenceNumber {
 
 message CLIResponse {
     string cli_response = 1;
+}
+
+message Malice {
+    string malice_type = 1;
+    repeated string malicious_server_id = 2;
+    repeated string target_server_id = 3;
 }
 
 // Client to server request
@@ -87,6 +94,7 @@ message ClientRequest {
   string client_id = 3;
   string signer_id = 4;
   bytes signature = 5;
+  bool is_read_only = 6;
 }
 
 // Server to client reply

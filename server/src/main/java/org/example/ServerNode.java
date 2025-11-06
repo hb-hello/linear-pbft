@@ -42,6 +42,7 @@ public class ServerNode extends Node {
     private final CheckpointHandler checkpointHandler;
     private final ViewChangeHandler viewChangeHandler;
     private final StateMessageHandler stateMessageHandler;
+    private final NewViewHandler newViewHandler;
 
     private final ServerState state;
 
@@ -76,6 +77,7 @@ public class ServerNode extends Node {
         this.commitHandler = new CommitHandler(state, MAJORITY_COUNT, commitSender, clientReplySender);
         this.checkpointHandler = new CheckpointHandler(state, MAJORITY_COUNT, checkpointSender);
         this.stateMessageHandler = new StateMessageHandler(state);
+        this.newViewHandler = new NewViewHandler(state, auth, viewChangeTimer);
 
         this.newViewSender = new NewViewSender(serverId, majorityCount(), commLogger, auth, checkpointHandler);
         this.viewChangeHandler = new ViewChangeHandler(state, auth, majorityCount(), viewChangeTimer, viewChangeSender, newViewSender);
@@ -182,6 +184,12 @@ public class ServerNode extends Node {
         });
     }
 
+    public void handleNewView(MessageServiceOuterClass.NewViewMessage newViewMessage) {
+        executorManager.submitMessageProcessing(() -> {
+            newViewHandler.handle(newViewMessage);
+        });
+    }
+
     public String getOperation(long sequenceNumber) {
         return state.getOperation(sequenceNumber).toString();
     }
@@ -236,6 +244,7 @@ public class ServerNode extends Node {
         }
 
         Config.initialize();
+        MaliceInjector.init(null);
 
         String nodeId = args[0];
         ServerNode serverNode = new ServerNode(nodeId);
