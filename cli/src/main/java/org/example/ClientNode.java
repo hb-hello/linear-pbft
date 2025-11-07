@@ -88,6 +88,7 @@ public class ClientNode extends Node {
                 .setOperation(opBuilder.build())
                 .setTimestamp(timestamp)
                 .setClientId(clientId)
+                .setIsReadOnly(opBuilder.hasBalanceRequest())
                 .build();
     }
 
@@ -100,13 +101,19 @@ public class ClientNode extends Node {
         if (primaryServerId == null) {
             // No known primary: broadcast to all servers concurrently
             logger.info("No primary known. Broadcasting request {} to all servers", requestId);
+            MessageServiceOuterClass.ClientRequest clientRequestConsensus = clientRequest.toBuilder().setIsReadOnly(false).build();
             for (String serverId : Config.getServerIds()) {
-                this.sender.sendRequest(serverId, clientRequest);
+                this.sender.sendRequest(serverId, clientRequestConsensus);
             }
         } else {
+            // multicast to all servers for read-only requests
+            if (clientRequest.getIsReadOnly()) {
+                for (String serverId : Config.getServerIds()) {
+                    this.sender.sendRequest(serverId, clientRequest);
+                }
+                logger.info("Sent read-only client request to all servers for request id {}", requestId);
             // Send to known primary
-            MessageServiceOuterClass.ClientRequest clientRequestReadOnly = clientRequest.toBuilder().setIsReadOnly(true).build();
-            this.sender.sendRequest(primaryServerId, clientRequestReadOnly);
+            } else this.sender.sendRequest(primaryServerId, clientRequest);
             logger.info("Sent client request to primary {} for id {}", primaryServerId, requestId);
         }
 

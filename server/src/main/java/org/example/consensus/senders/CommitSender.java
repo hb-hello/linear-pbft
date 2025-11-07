@@ -3,6 +3,7 @@ package org.example.consensus.senders;
 import com.google.protobuf.ByteString;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.example.MaliceInjector;
 import org.example.MessageServiceOuterClass;
 import org.example.crypto.MessageAuthenticator;
 import org.example.messaging.CommunicationLogger;
@@ -50,7 +51,10 @@ public class CommitSender extends MessageSender {
         };
 
         // Send the signed Commit to the collector
-        if (!state.isCollector()) send(state.getCollectorServerId(), signedCommitMsg, (stub, signed) -> stub.commit((org.example.MessageServiceOuterClass.CommitMessage) signed));
+        if (!state.isCollector()) {
+            MaliceInjector.injectTimingAttack(state.getServerId());
+            send(state.getCollectorServerId(), signedCommitMsg, (stub, signed) -> stub.commit((org.example.MessageServiceOuterClass.CommitMessage) signed));
+        };
         logger.info("Sent Commit for view {} seq {}", viewNumber, sequenceNumber);
     }
 
@@ -63,14 +67,14 @@ public class CommitSender extends MessageSender {
 
         logger.info("Creating aggregated Commit for view {} seq {}", viewNumber, sequenceNumber);
 
-        Map<String, ByteString> commitSignatures = state.getQuorumSignatures(ServerMessage.PREPARE, viewNumber, sequenceNumber);
+        Map<String, ByteString> commitSignatures = state.getQuorumSignatures(ServerMessage.COMMIT, viewNumber, sequenceNumber);
 
         if (commitSignatures.isEmpty()) {
             logger.warn("No Commit quorum found to aggregate for view {} seq {}", viewNumber, sequenceNumber);
             return;
         }
 
-        ByteString digest = state.getQuorumDigest(ServerMessage.PREPARE, viewNumber, sequenceNumber);
+        ByteString digest = state.getQuorumDigest(ServerMessage.COMMIT, viewNumber, sequenceNumber);
 
         // Build AggregatedCommit message
         MessageServiceOuterClass.CommitMessage aggregatedCommitMsg =
@@ -87,6 +91,8 @@ public class CommitSender extends MessageSender {
             logger.warn("Failed to append Aggregated Commit message to state for view {} seq {}, likely due to duplicate check", viewNumber, sequenceNumber);
             return;
         };
+
+        MaliceInjector.injectTimingAttack(state.getServerId());
 
         broadcast(signedCommitMsg, (stub, signed) -> stub.commit((MessageServiceOuterClass.CommitMessage) signed));
         logger.info("Broadcasted Aggregated Commit for view {} seq {}", viewNumber, sequenceNumber);

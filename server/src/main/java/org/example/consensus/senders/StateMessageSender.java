@@ -3,6 +3,7 @@ package org.example.consensus.senders;
 import com.google.protobuf.ByteString;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.example.MaliceInjector;
 import org.example.MessageServiceOuterClass;
 import org.example.crypto.MessageAuthenticator;
 import org.example.messaging.CommunicationLogger;
@@ -38,6 +39,8 @@ public class StateMessageSender  extends MessageSender {
                 .putAllStateSnapshot(BankStateMachine.convertSnapshot(snapshot))
                 .setDigest(digest)
                 .build();
+
+        MaliceInjector.injectTimingAttack(state.getServerId());
 
         signAndSend(targetServerId, stateMessage, (stub, signed) -> stub.stateResponse((MessageServiceOuterClass.StateMessage) signed));
         logger.info("Sent state message to server {}", targetServerId);

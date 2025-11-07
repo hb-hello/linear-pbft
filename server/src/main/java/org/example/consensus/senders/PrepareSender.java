@@ -3,6 +3,7 @@ package org.example.consensus.senders;
 import com.google.protobuf.ByteString;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.example.MaliceInjector;
 import org.example.MessageServiceOuterClass;
 import org.example.ServerNode;
 import org.example.crypto.MessageAuthenticator;
@@ -30,6 +31,9 @@ public class PrepareSender extends MessageSender {
         logger.info("Preparing to send Prepare for view {} seq {}",
                 viewNumber, sequenceNumber);
 
+        //diagnostic
+        state.printAverageRequestDuration();
+
         // Build Prepare message
         org.example.MessageServiceOuterClass.PrepareMessage prepareMsg =
                 org.example.MessageServiceOuterClass.PrepareMessage.newBuilder()
@@ -50,6 +54,9 @@ public class PrepareSender extends MessageSender {
             logger.info("This server is the collector, no need to send Prepare to self");
             return;
         }
+
+        MaliceInjector.injectTimingAttack(state.getServerId());
+
         send(state.getCollectorServerId(), signedPrepareMsg, (stub, signed) -> stub.prepare((MessageServiceOuterClass.PrepareMessage) signed));
         logger.info("Sent Prepare for view {} seq {}", viewNumber, sequenceNumber);
     }
@@ -95,6 +102,8 @@ public class PrepareSender extends MessageSender {
             logger.warn("Failed to append Aggregated Prepare message to state for view {} seq {}, likely due to duplicate check", viewNumber, sequenceNumber);
             return;
         };
+
+        MaliceInjector.injectTimingAttack(state.getServerId());
 
         broadcast(signedPrepareMsg, (stub, signed) -> stub.prepare((MessageServiceOuterClass.PrepareMessage) signed));
         logger.info("Broadcasted Aggregated Prepare for view {} seq {}", viewNumber, sequenceNumber);

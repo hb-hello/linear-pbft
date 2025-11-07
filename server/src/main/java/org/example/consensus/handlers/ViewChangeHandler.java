@@ -2,6 +2,7 @@ package org.example.consensus.handlers;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.example.MaliceInjector;
 import org.example.MessageServiceOuterClass;
 import org.example.ServerNode;
 import org.example.consensus.LivenessTimer;
@@ -138,10 +139,15 @@ public class ViewChangeHandler {
             return;
         }
 
+        if (MaliceInjector.injectCrashAttack(state.getServerId())) {
+            logger.info("MaliceInjector crash attack activated - refraining from broadcasting NewView message");
+            return;
+        }
+
         newViewSender.broadcastNewView(state, viewNumber);
 
         logger.info("ViewChangeMessage for view {} has reached full quorum, starting view change timer",
                 viewNumber);
-        viewChangeTimer.startIfNotRunning();
+        if (!state.isPrimary()) viewChangeTimer.startIfNotRunning();
     }
 }

@@ -56,7 +56,7 @@ public final class SenderDispatcher implements AutoCloseable {
         ex.execute(() -> {
             try {
                 ClientNode clientNode = clients.get(clientId);
-                clientNode.reset();
+//                clientNode.reset();
 
                 // Process the operation directly
                 clientNode.processOperation(operation);
@@ -82,11 +82,11 @@ public final class SenderDispatcher implements AutoCloseable {
         executors.values().forEach(ExecutorService::shutdownNow);
 
         // Shutdown all existing client nodes
-        clients.values().forEach(ClientNode::shutdown);
+        clients.values().forEach(ClientNode::reset);
 
         // Clear the maps
         executors.clear();
-        clients.clear();
+//        clients.clear();
 
         // Reset counters
         submitted.set(0);
@@ -96,9 +96,9 @@ public final class SenderDispatcher implements AutoCloseable {
         for (char c = 'A'; c <= 'J'; c++) {
             String id = String.valueOf(c);
             executors.put(id, newSingle("sender-" + id));
-            ClientNode client = new ClientNode(id);
-            client.start();
-            clients.put(id, client);
+//            ClientNode client = new ClientNode(id);
+//            client.start();
+//            clients.put(id, client);
         }
         executors.put(LF_SENDER, newSingle("sender-LF"));
     }

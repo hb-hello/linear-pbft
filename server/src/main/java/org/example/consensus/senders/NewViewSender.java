@@ -3,6 +3,7 @@ package org.example.consensus.senders;
 import com.google.protobuf.ByteString;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.example.MaliceInjector;
 import org.example.MessageServiceOuterClass;
 import org.example.consensus.handlers.CheckpointHandler;
 import org.example.crypto.MessageAuthenticator;
@@ -176,6 +177,8 @@ public class NewViewSender extends MessageSender {
             logger.info("Failed to append New View message to state for view {}, likely due to duplicate check", newViewNumber);
             return;
         }
+
+        MaliceInjector.injectTimingAttack(state.getServerId());
 
         broadcast(signedNewView, (stub, signed) -> stub.newView((MessageServiceOuterClass.NewViewMessage) signed));
         logger.info("Broadcasted NewView message for view {}", newViewNumber);

@@ -2,6 +2,7 @@ package org.example.consensus.senders;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.example.MaliceInjector;
 import org.example.MessageServiceOuterClass;
 import org.example.crypto.MessageAuthenticator;
 import org.example.messaging.CommunicationLogger;
@@ -87,6 +88,9 @@ public class ViewChangeSender extends MessageSender {
         }
 
         logger.info("Broadcasting ViewChange message for new view {}", newViewNumber);
+
+        MaliceInjector.injectTimingAttack(state.getServerId());
+
         broadcast(signedViewChange, (stub, signed) -> stub.viewChange((MessageServiceOuterClass.ViewChangeMessage) signed));
         logger.info("Broadcasted ViewChange message for new view {}", newViewNumber);
     }

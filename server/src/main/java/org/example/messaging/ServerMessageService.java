@@ -246,6 +246,7 @@ public class ServerMessageService extends MessageServiceGrpc.MessageServiceImplB
 
     @Override
     public void injectMalice(MessageServiceOuterClass.Malice malice, StreamObserver<MessageServiceOuterClass.Acknowledgement> responseObserver) {
+        logger.info("Received request to inject malice: {}", malice);
         MaliceInjector.addMalice(malice);
         MessageServiceOuterClass.Acknowledgement ack = MessageServiceOuterClass.Acknowledgement.newBuilder().setStatus(true).build();
         responseObserver.onNext(ack);

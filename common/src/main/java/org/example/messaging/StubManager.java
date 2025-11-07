@@ -4,25 +4,41 @@ import org.example.MessageServiceGrpc;
 
 public class StubManager {
 
-    private final ChannelManager channelManager;
+    // Shared ChannelManager reused across all StubManager instances.
+    // Lazily initialized so the first StubManager can optionally provide an excludeNodeId.
+    private static ChannelManager channelManager;
 
     public StubManager() {
-        this.channelManager = new ChannelManager();
+        initChannelManager(null);
     }
 
     public StubManager(String excludeNodeId) {
-        this.channelManager = new ChannelManager(excludeNodeId);
+        initChannelManager(excludeNodeId);
+    }
+
+    private static synchronized void initChannelManager(String excludeNodeId) {
+        if (channelManager == null) {
+            if (excludeNodeId == null || excludeNodeId.isEmpty()) {
+                channelManager = new ChannelManager();
+            } else {
+                channelManager = new ChannelManager(excludeNodeId);
+            }
+        }
     }
 
     public MessageServiceGrpc.MessageServiceBlockingStub getBlockingStub(String nodeId) {
+        initChannelManager(null); // ensure initialized
         return MessageServiceGrpc.newBlockingStub(channelManager.getChannel(nodeId));
     }
 
     public MessageServiceGrpc.MessageServiceFutureStub getFutureStub(String nodeId) {
+        initChannelManager(null); // ensure initialized
         return MessageServiceGrpc.newFutureStub(channelManager.getChannel(nodeId));
     }
 
     public void shutdown() {
-        channelManager.shutdownChannels();
+        if (channelManager != null) {
+            channelManager.shutdownChannels();
+        }
     }
 }

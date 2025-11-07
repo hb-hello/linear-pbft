@@ -4,6 +4,7 @@ import com.google.protobuf.ByteString;
 import com.google.protobuf.Message;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.example.MaliceInjector;
 import org.example.MessageServiceOuterClass;
 import org.example.config.Config;
 import org.example.consensus.LivenessTimer;
@@ -60,6 +61,8 @@ public final class ServerState {
     // Output buffer drained by networking; enqueue from actor for ordering with state updates
     private final BlockingQueue<Object> outputBuffer = new LinkedBlockingQueue<>();
 
+    private final List<Long> requestDurations = new ArrayList<>();
+
     // DTO for safe read snapshots
     public record Header(long view, String primary, boolean faulty, long seq) {
     }
@@ -81,6 +84,28 @@ public final class ServerState {
             this.stateMachineOperator = new StateMachineOperator(this, operationLog, replySender, checkpointSender);
             this.livenessTimer = livenessTimer;
             return null;
+        });
+    }
+
+    //diagnostic
+    public void recordRequestDuration(long durationMillis) {
+        runSync(() -> {
+            requestDurations.add(durationMillis);
+        });
+    }
+
+    public void printAverageRequestDuration() {
+        runSync(() -> {
+            if (requestDurations.isEmpty()) {
+                logger.info("No request durations recorded.");
+                return;
+            }
+            long total = 0;
+            for (long duration : requestDurations) {
+                total += duration;
+            }
+            double average = (double) total / requestDurations.size();
+            logger.info("Average request duration: {} ms over {} requests", average, requestDurations.size());
         });
     }
 
@@ -380,6 +405,10 @@ public final class ServerState {
             });
     }
 
+    public CompletableFuture<MessageServiceOuterClass.ClientReply> executeReadOnlyRequest(MessageServiceOuterClass.ClientRequest request) {
+        return runSync(() -> stateMachineOperator.executeReadOnly(request));
+    }
+
     public Object snapshotStateMachine() {
         return runSync(() -> stateMachineOperator.snapshot());
     }
@@ -654,6 +683,13 @@ public final class ServerState {
 
     public boolean isPrepared(long viewNumber, long sequenceNumber) {
         return runSync(() -> {
+
+            // injecting crash attack
+            if(MaliceInjector.injectCrashAttack(getServerId())) {
+                logger.info("MaliceInjector crash attack activated - returning false for isPrepared");
+                return false;
+            }
+
 //            logger.info("Checking if prepared for view {} seq {}", viewNumber, sequenceNumber);
 
             if (!hasPrePrepare(viewNumber, sequenceNumber)) {
@@ -830,6 +866,7 @@ public final class ServerState {
             serverMessageTracker.clear();
             outputBuffer.clear();
             resetWatermarks();
+            requestDurations.clear();
             return null;
         });
     }

@@ -25,24 +25,26 @@ public class MaliceInjectorTest {
         props.setProperty("client.details.path", "../src/main/resources/clientDetails.json");
         org.example.config.Config.initialize(props);
 
-        // Enable time malice
+        // Enable time malice and mark n1 as malicious
         MessageServiceOuterClass.Malice timeMalice = MessageServiceOuterClass.Malice.newBuilder()
                 .setMaliceType("time")
+                .addMaliciousServerId("n1")
                 .build();
         MaliceInjector.init(Collections.singleton(timeMalice));
 
         long start = System.currentTimeMillis();
-        MaliceInjector.injectTimingAttack();
+        MaliceInjector.injectTimingAttack("n1");
         long elapsed = System.currentTimeMillis() - start;
         assertTrue(elapsed >= 40, "injectTimingAttack should sleep at least the configured delay");
     }
 
     @Test
     public void testInjectInDarkAttack_filtersTargets() {
-        // Create dark malice targeting n2
+        // Create dark malice targeting n2 and mark n1 as malicious
         MessageServiceOuterClass.Malice darkMalice = MessageServiceOuterClass.Malice.newBuilder()
                 .setMaliceType("dark")
                 .addTargetServerId("n2")
+                .addMaliciousServerId("n1")
                 .build();
         MaliceInjector.init(Collections.singleton(darkMalice));
 
@@ -51,7 +53,7 @@ public class MaliceInjectorTest {
         servers.add("n2");
         servers.add("n3");
 
-        Set<String> filtered = MaliceInjector.injectInDarkAttack(servers);
+        Set<String> filtered = MaliceInjector.injectInDarkAttack("n1", servers);
         assertEquals(2, filtered.size());
         Iterator<String> it = filtered.iterator();
         assertEquals("n1", it.next());
@@ -60,9 +62,10 @@ public class MaliceInjectorTest {
 
     @Test
     public void testInjectSignAttack_replacesSignature() {
-        // Enable sign malice
+        // Enable sign malice and mark n1 as malicious
         MessageServiceOuterClass.Malice signMalice = MessageServiceOuterClass.Malice.newBuilder()
                 .setMaliceType("sign")
+                .addMaliciousServerId("n1")
                 .build();
         MaliceInjector.init(Collections.singleton(signMalice));
 
@@ -74,7 +77,7 @@ public class MaliceInjectorTest {
                 .setSignature(ByteString.copyFromUtf8("ORIGINAL"))
                 .build();
 
-        MessageServiceOuterClass.PrePrepareMessage out = (MessageServiceOuterClass.PrePrepareMessage) MaliceInjector.injectSignAttack(msg);
+        MessageServiceOuterClass.PrePrepareMessage out = (MessageServiceOuterClass.PrePrepareMessage) MaliceInjector.injectSignAttack("n1", msg);
         assertNotNull(out);
         assertEquals("INCORRECT_SIGNATURE", out.getSignature().toStringUtf8());
     }
@@ -85,6 +88,7 @@ public class MaliceInjectorTest {
         MessageServiceOuterClass.Malice eqMalice = MessageServiceOuterClass.Malice.newBuilder()
                 .setMaliceType("equivocation")
                 .addTargetServerId("n1")
+                .addMaliciousServerId("n0")
                 .build();
         MaliceInjector.init(Collections.singleton(eqMalice));
 
@@ -95,12 +99,12 @@ public class MaliceInjectorTest {
                 .build();
 
         MessageServiceOuterClass.PrePrepareMessage modified = (MessageServiceOuterClass.PrePrepareMessage)
-                MaliceInjector.injectEquivocationAttack("n1", msg);
+                MaliceInjector.injectEquivocationAttack("n0", "n1", msg);
         assertEquals(6, modified.getSequenceNumber());
 
         // Ensure non-target server is not affected
         MessageServiceOuterClass.PrePrepareMessage unchanged = (MessageServiceOuterClass.PrePrepareMessage)
-                MaliceInjector.injectEquivocationAttack("n2", msg);
+                MaliceInjector.injectEquivocationAttack("n0", "n2", msg);
         assertEquals(5, unchanged.getSequenceNumber());
     }
 }

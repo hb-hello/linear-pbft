@@ -131,13 +131,16 @@ public class MessageAuthenticator {
 
         Descriptors.FieldDescriptor fIsAggregated = message.getDescriptorForType().findFieldByName("is_aggregated");
         if (fIsAggregated == null) throw new IllegalStateException("Message missing is_aggregated field");
-//        logger.info("Found all fields needed to attach sign to message : {}, {}, {}",
-//            fAggSig.getName(), fId.getName(), fIsAggregated.getName());
+        logger.info("Found all fields needed to attach sign to message : {}, {}, {}",
+            fAggSig.getName(), fId.getName(), fIsAggregated.getName());
 
         Map<Integer, byte[]> parts = new HashMap<>();
         for (Map.Entry<String, ByteString> e : partialSigs.entrySet()) {
             parts.put(Config.getServerNumberFromId(e.getKey()), e.getValue().toByteArray());
         }
+
+        logger.info("Combining {} partial signatures to create aggregate signature", parts.size());
+
         byte[] aggregateSig = tssSignerVerifier.combine(parts);
         return message.toBuilder()
                 .setField(fAggSig, ByteString.copyFrom(aggregateSig))

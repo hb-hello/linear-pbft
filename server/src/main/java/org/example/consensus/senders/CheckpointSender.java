@@ -4,6 +4,7 @@ import com.google.protobuf.ByteString;
 import com.google.protobuf.Empty;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.example.MaliceInjector;
 import org.example.MessageServiceOuterClass;
 import org.example.ServerNode;
 import org.example.consensus.Checkpoint;
@@ -59,6 +60,8 @@ public class CheckpointSender extends MessageSender {
             logger.warn("Failed to append Checkpoint message to state for view {} seq {}, likely due to duplicate check", viewNumber, sequenceNumber);
             return;
         };
+
+        MaliceInjector.injectTimingAttack(state.getServerId());
 
         broadcast(signedCheckpointMsg, (stub, signed) -> stub.checkpoint((MessageServiceOuterClass.CheckpointMessage) signed));
         logger.info("Sent Checkpoint for view {} seq {}", viewNumber, sequenceNumber);

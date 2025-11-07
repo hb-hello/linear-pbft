@@ -123,6 +123,35 @@ public class StateMachineOperator {
         }, stateMachineExecutor);
     }
 
+    /**
+     * Execute a read-only operation (no sequence number) on the state machine.
+     * Currently supports only BALANCE_REQUEST operations. Execution runs on the
+     * same single-threaded stateMachineExecutor to avoid races with state updates.
+     * Returns a CompletableFuture that completes with the ClientReply or null if
+     * the request does not contain a BALANCE_REQUEST.
+     */
+    public CompletableFuture<MessageServiceOuterClass.ClientReply> executeReadOnly(MessageServiceOuterClass.ClientRequest request) {
+        return CompletableFuture.supplyAsync(() -> {
+            MessageServiceOuterClass.Operation op = request.getOperation();
+            // Check for balance request
+            if (op == null || op.getOpCase() != MessageServiceOuterClass.Operation.OpCase.BALANCE_REQUEST) {
+                logger.warn("executeReadOnly called with non-BALANCE_REQUEST operation: {}", op == null ? "null" : op.getOpCase());
+                return null;
+            }
+
+            // Execute on the state machine (read-only) and build reply. Do not mutate execution state.
+            MessageServiceOuterClass.OperationResult result = stateMachine.execute(op);
+
+            return MessageServiceOuterClass.ClientReply.newBuilder()
+                    .setViewNumber(state.getViewNumber())
+                    .setTimestamp(request.getTimestamp())
+                    .setClientId(request.getClientId())
+                    .setServerId(state.getServerId())
+                    .setResult(result)
+                    .build();
+        }, stateMachineExecutor);
+    }
+
     private void executePendingOperations() {
         // Process pending operations in order starting from lastExecutedSeqNum + 1
         // This runs synchronously in the current thread (should be the state machine executor thread)

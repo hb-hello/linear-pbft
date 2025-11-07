@@ -3,6 +3,7 @@ package org.example.consensus.senders;
 import com.google.protobuf.ByteString;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.example.MaliceInjector;
 import org.example.MessageServiceOuterClass;
 import org.example.crypto.MessageAuthenticator;
 import org.example.messaging.CommunicationLogger;
@@ -80,6 +81,9 @@ public class PrePrepareSender extends MessageSender {
         // Sign with TSS and broadcast
         broadcastToServers(request);
         // After broadcasting PrePrepare, send Prepare to collector (so that collector gets a quorum of prepares)
+
+        MaliceInjector.injectTimingAttack(state.getServerId());
+
         prepareSender.sendPrepare(state.getViewNumber(), seqNum, digest);
     }
 
@@ -88,6 +92,9 @@ public class PrePrepareSender extends MessageSender {
         logger.info("Broadcasting PrePrepare for seqNum {} in view {}",
                 request.getPrePrepareMessage().getSequenceNumber(),
                 request.getPrePrepareMessage().getViewNumber());
+
+        MaliceInjector.injectTimingAttack(state.getServerId());
+
         broadcast(request, (stub, signed) ->
                 stub.prePrepare((MessageServiceOuterClass.PrePrepareRequest) signed));
     }

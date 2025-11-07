@@ -77,7 +77,7 @@ public class ServerNode extends Node {
         this.commitHandler = new CommitHandler(state, MAJORITY_COUNT, commitSender, clientReplySender);
         this.checkpointHandler = new CheckpointHandler(state, MAJORITY_COUNT, checkpointSender);
         this.stateMessageHandler = new StateMessageHandler(state);
-        this.newViewHandler = new NewViewHandler(state, auth, viewChangeTimer);
+        this.newViewHandler = new NewViewHandler(state, auth, viewChangeTimer, prepareSender);
 
         this.newViewSender = new NewViewSender(serverId, majorityCount(), commLogger, auth, checkpointHandler);
         this.viewChangeHandler = new ViewChangeHandler(state, auth, majorityCount(), viewChangeTimer, viewChangeSender, newViewSender);
@@ -232,6 +232,7 @@ public class ServerNode extends Node {
         livenessTimer.shutdown();
         viewChangeTimer.shutdown();
         receiver.shutdown();
+        MaliceInjector.init(null);
         super.shutdown();
         logger.info("Server node {} shut down complete", nodeId);
     }
