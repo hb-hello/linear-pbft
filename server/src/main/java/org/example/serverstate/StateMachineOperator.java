@@ -119,6 +119,8 @@ public class StateMachineOperator {
                 executePendingOperations();
             }
 
+            logger.info("Executed operation with seqNum {}. Last executed seqNum is now {}, Now returning reply", seqNum, lastExecutedSeqNum);
+
             return reply;
         }, stateMachineExecutor);
     }

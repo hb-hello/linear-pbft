@@ -1,22 +1,28 @@
 package org.example.serverstate;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.example.MessageServiceOuterClass;
 
+import java.util.HashSet;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
-public record OperationLog(ConcurrentHashMap<Long, OperationLogEntry> entries) {
+public record OperationLog(ConcurrentHashMap<Long, OperationLogEntry> entries, Set<Long> seqNumsSeen) {
 
     public OperationLog() {
-        this(new ConcurrentHashMap<>());
+        this(new ConcurrentHashMap<>(), new HashSet<>());
     }
 
     public void addOperation(long sequenceNumber, MessageServiceOuterClass.ClientRequest request, OperationStatus status) {
         entries.put(sequenceNumber, new OperationLogEntry(request, status));
+        seqNumsSeen.add(sequenceNumber);
     }
 
     public void addOperationOrUpdateStatus(long sequenceNumber, MessageServiceOuterClass.ClientRequest request, OperationStatus status) {
         entries.compute(sequenceNumber, (seqNum, existingEntry) -> {
             if (existingEntry == null) {
+                seqNumsSeen.add(sequenceNumber);
                 return new OperationLogEntry(request, status);
             } else {
                 existingEntry.setStatus(status);

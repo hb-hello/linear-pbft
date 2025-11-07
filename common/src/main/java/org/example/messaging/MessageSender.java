@@ -80,7 +80,7 @@ public class MessageSender {
             logger.info("Sending pre-signed message to node {}: {}", targetNodeId, signedMessage.getDescriptorForType().getName());
             MessageServiceGrpc.MessageServiceFutureStub stub = stubManager.getFutureStub(targetNodeId);
             method.accept(stub, signedMessage);
-            commLogger.add(signedMessage, true);
+            commLogger.add(signedMessage, true, targetNodeId);
         });
     }
 

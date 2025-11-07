@@ -63,8 +63,7 @@ public class ViewChangeSender extends MessageSender {
         // fetch prepared certificate
         logger.info("Fetching prepared certificates between watermarks for view {}",
                 state.getViewNumber());
-        for (Iterator<Long> it = state.getSeqNumsBetweenWatermarks(); it.hasNext();) {
-            long seqNum = it.next();
+        for (long seqNum : state.getUniqueSeqNumsSeen()) {
             MessageServiceOuterClass.PreparedCertificate preparedCertificate = state.getPreparedCertificate(seqNum);
             if (preparedCertificate != null) {
                 viewChangeBuilder.addPreparedCertificates(preparedCertificate);

@@ -475,15 +475,22 @@ public final class ServerState {
 
     public boolean appendServerMessage(Message msg, MessageServiceOuterClass.ClientRequest clientRequest, int required) {
         ServerMessage serverMsg = ServerMessage.wrap(msg);
-        logger.info("Appending server message: {}", serverMsg.toDetailedString());
+        logger.info("Appending server message: {} {}", serverMsg.toDetailedString(), clientRequest != null ? "with client request" : "without client request");
         return runSync(() -> {
-            addToOperationLog(serverMsg, clientRequest);
+            logger.info("Is message type pre prepare? {}", Objects.equals(serverMsg.getMessageType(), ServerMessage.PRE_PREPARE));
+            if (Objects.equals(serverMsg.getMessageType(), ServerMessage.PRE_PREPARE)) operationLog.addOperation(serverMsg.getSequenceNumber().orElse(-1L), clientRequest, OperationStatus.PREPREPARED);
             return serverMessageTracker.append(serverMsg, required);
         });
     }
 
     public OperationStatus getOperationStatus(long sequenceNumber) {
         return runSync(() -> operationLog.getOperationStatus(sequenceNumber));
+    }
+
+    public void setOperationStatus(long sequenceNumber, OperationStatus status) {
+        runSync(() -> {
+            operationLog.updateStatus(sequenceNumber, status);
+        });
     }
 
     public OperationLogEntry getOperation(long sequenceNumber) {
@@ -494,34 +501,12 @@ public final class ServerState {
         return runSync(() -> operationLog);
     }
 
-    public String printIndexedServerMessages() {
-        return runSync(serverMessageTracker::printIndexedMessages);
+    public Set<Long> getUniqueSeqNumsSeen() {
+        return runSync(operationLog::seqNumsSeen);
     }
 
-    public void addToOperationLog(ServerMessage serverMsg, MessageServiceOuterClass.ClientRequest clientRequest) {
-        runSync(() -> {
-            switch(serverMsg.getMessageType()) {
-                case ServerMessage.PRE_PREPARE:
-                    operationLog.addOperation(serverMsg.getSequenceNumber().orElse(-1L), clientRequest, OperationStatus.PREPREPARED);
-                    break;
-                case ServerMessage.PREPARE:
-                    MessageServiceOuterClass.ClientRequest clientRequestPrepare = clientRequest;
-                    if (clientRequestPrepare == null) clientRequestPrepare = findClientRequest(serverMsg.getDigest().orElse(null));
-                    operationLog.addOperationOrUpdateStatus(serverMsg.getSequenceNumber().orElse(-1L), clientRequestPrepare, OperationStatus.PREPARED);
-                    break;
-                case ServerMessage.COMMIT:
-                    MessageServiceOuterClass.ClientRequest clientRequestCommit = clientRequest;
-                    if (clientRequestCommit == null) clientRequestCommit = findClientRequest(serverMsg.getDigest().orElse(null));
-                    operationLog.addOperationOrUpdateStatus(serverMsg.getSequenceNumber().orElse(-1L), clientRequestCommit, OperationStatus.COMMITTED);
-                    break;
-                case ServerMessage.CHECKPOINT:
-                    operationLog.updateStatusForAllBefore(serverMsg.getSequenceNumber().orElse(-1L), OperationStatus.CHECKPOINTED);
-                    break;
-                default:
-                    operationLog.addOperationOrUpdateStatus(serverMsg.getSequenceNumber().orElse(-1L), null, OperationStatus.NONE);
-                    break;
-            }
-        });
+    public String printIndexedServerMessages() {
+        return runSync(serverMessageTracker::printIndexedMessages);
     }
 
     public boolean appendClientRequest(Message msg) {
@@ -721,6 +706,7 @@ public final class ServerState {
                 if (Objects.equals(digest, getPrePrepareDigest(viewNumber, sequenceNumber))) {
                     logger.info("View {} seq {} is prepared, caching view number in isPreparedCache", viewNumber, sequenceNumber);
                     isPreparedCache.put(sequenceNumber, viewNumber);
+                    operationLog.updateStatus(sequenceNumber, OperationStatus.PREPARED);
                     return true;
                 }
                 return false;
@@ -835,7 +821,11 @@ public final class ServerState {
                     logger.info("Digest from commits is null for view {} seq {}, cannot be committed", viewNumber, sequenceNumber);
                     return false;
                 }
-                return Objects.equals(digest, getPrePrepareDigest(viewNumber, sequenceNumber));
+                if (Objects.equals(digest, getPrePrepareDigest(viewNumber, sequenceNumber))) {
+                    operationLog.updateStatus(sequenceNumber, OperationStatus.COMMITTED);
+                    return true;
+                }
+                return false;
             } else {
                 return false;
             }

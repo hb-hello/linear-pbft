@@ -129,6 +129,7 @@ public class ServerNode extends Node {
         state.reset();
         livenessTimer.stop();
         viewChangeTimer.stop();
+        commLogger.reset();
     }
 
     public static int majorityCount() {

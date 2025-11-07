@@ -1,8 +1,14 @@
 package org.example.serverstate;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.example.MessageServiceOuterClass;
 
+import static org.example.messaging.MessageUtil.requestIdFor;
+
 public class OperationLogEntry {
+    private static final Logger logger = LogManager.getLogger(OperationLogEntry.class);
+
     private MessageServiceOuterClass.ClientRequest request;
     private OperationStatus status;
 
@@ -24,6 +30,10 @@ public class OperationLogEntry {
     }
 
     public void setStatus(OperationStatus status) {
+        if (request != null) {
+            String requestId = requestIdFor(request.getClientId(), request.getTimestamp());
+            logger.info("Updating operation status for request {} from {} to {}", requestId, this.status, status);
+        }
         this.status = status;
     }
 

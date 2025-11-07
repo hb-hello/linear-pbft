@@ -30,7 +30,7 @@ public class ServerMessageService extends MessageServiceGrpc.MessageServiceImplB
 
     @Override
     public void request(MessageServiceOuterClass.ClientRequest request, StreamObserver<Empty> responseObserver) {
-        communicationLogger.add(request);
+        communicationLogger.add(request, false);
 
         if (!auth.verify(request)) {
             logger.warn("Invalid signature for client request from client {}", request.getClientId());
@@ -71,7 +71,7 @@ public class ServerMessageService extends MessageServiceGrpc.MessageServiceImplB
         logger.info("Signature verified for Pre-Prepare message from server {}", request.getPrePrepareMessage().getSignerId());
 
         // Log using CommunicationLogger overload
-        communicationLogger.add(prePrepareMessage);
+        communicationLogger.add(prePrepareMessage, false);
 
         serverNode.handlePrePrepare(request);
     }
@@ -80,7 +80,7 @@ public class ServerMessageService extends MessageServiceGrpc.MessageServiceImplB
     public void prepare(MessageServiceOuterClass.PrepareMessage request, StreamObserver<Empty> responseObserver) {
 
         // Log using CommunicationLogger overload
-        communicationLogger.add(request);
+        communicationLogger.add(request, false);
 
         if (!auth.verify(request)) {
             logger.warn("Invalid signature for Prepare message from server {}", request.getSignerId());
@@ -95,7 +95,7 @@ public class ServerMessageService extends MessageServiceGrpc.MessageServiceImplB
     @Override
     public void commit(MessageServiceOuterClass.CommitMessage request, StreamObserver<Empty> responseObserver) {
         // Log using CommunicationLogger overload
-        communicationLogger.add(request);
+        communicationLogger.add(request, false);
 
         if (!auth.verify(request)) {
             logger.warn("Invalid signature for Commit message from server {}", request.getSignerId());
@@ -108,7 +108,7 @@ public class ServerMessageService extends MessageServiceGrpc.MessageServiceImplB
     @Override
     public void checkpoint(MessageServiceOuterClass.CheckpointMessage request, StreamObserver<Empty> responseObserver) {
         // Log using CommunicationLogger overload
-        communicationLogger.add(request);
+        communicationLogger.add(request, false);
 
         if (!auth.verify(request)) {
             logger.warn("Invalid signature for Checkpoint message from server {}", request.getSignerId());
@@ -143,7 +143,7 @@ public class ServerMessageService extends MessageServiceGrpc.MessageServiceImplB
     @Override
     public void viewChange(MessageServiceOuterClass.ViewChangeMessage request, StreamObserver<Empty> responseObserver) {
         // Log using CommunicationLogger overload
-        communicationLogger.add(request);
+        communicationLogger.add(request, false);
 
         logger.info("MESSAGE: <VIEW CHANGE, {}, {}> received from server {}",
                 request.getViewNumber(),
@@ -162,7 +162,7 @@ public class ServerMessageService extends MessageServiceGrpc.MessageServiceImplB
     @Override
     public void newView(MessageServiceOuterClass.NewViewMessage request, StreamObserver<Empty> responseObserver) {
         // Log using CommunicationLogger overload
-        communicationLogger.add(request);
+        communicationLogger.add(request, false);
 
         if (!auth.verify(request)) {
             logger.warn("Invalid signature for New View message from server {}", request.getSignerId());
