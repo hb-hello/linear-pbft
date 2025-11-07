@@ -62,7 +62,7 @@ public class ServerConsensusMessageTracker extends ConsensusMessageTracker<Strin
 
         // First ensure we have a ServerConsensusMessage (not just ConsensusMessage)
         tracked.computeIfAbsent(requestId, id -> {
-            System.out.println("Implicitly creating ServerConsensusMessage tracker when recording reply for requestId=" + id);
+//            System.out.println("Implicitly creating ServerConsensusMessage tracker when recording reply for requestId=" + id);
             return new ServerConsensusMessage<>(id, required, msg -> msg.getDigest().orElse(ByteString.EMPTY));
         });
 

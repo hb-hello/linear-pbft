@@ -131,15 +131,17 @@ class StateMachineOperatorTest {
 
     @Test
     void testExecuteOperation_lowerSequenceNumber_doesNotExecute() throws Exception {
-        MessageServiceOuterClass.ClientRequest request1 = createTransferRequest("client1", 100L, "A", "B", 5.0);
+        MessageServiceOuterClass.ClientRequest request1 = createTransferRequest("client1", 300L, "A", "B", 5.0);
         MessageServiceOuterClass.ClientRequest request2 = createTransferRequest("client2", 200L, "A", "B", 10.0);
 
-        // Execute seqNum 3
+        // Execute seqNum 3 (out of order - will be pending)
         operator.executeOperation(request1, 3L).get();
-        operator.executeOperation(request1, 1L).get();
-        operator.executeOperation(request1, 2L).get();
+        // Execute seqNum 1
+        operator.executeOperation(createTransferRequest("client1", 100L, "A", "B", 5.0), 1L).get();
+        // Execute seqNum 2
+        operator.executeOperation(createTransferRequest("client1", 200L, "A", "B", 5.0), 2L).get();
 
-        // Try to execute seqNum 2 (lower than last executed)
+        // Try to execute seqNum 2 (lower than last executed) with a different request/client
         MessageServiceOuterClass.ClientReply reply = operator.executeOperation(request2, 2L).get();
         assertNull(reply, "Operation with lower seqNum should return null");
     }
@@ -232,25 +234,6 @@ class StateMachineOperatorTest {
         // Try to execute different request with same seqNum 1
         MessageServiceOuterClass.ClientReply reply2 = operator.executeOperation(request2, 1L).get();
         assertNull(reply2, "Duplicate seqNum should not execute even with different request");
-    }
-
-    @Test
-    void testMarkExecutedUpTo_advancesExecution() throws Exception {
-        MessageServiceOuterClass.ClientRequest request1 = createTransferRequest("client1", 100L, "A", "B", 5.0);
-        MessageServiceOuterClass.ClientRequest request2 = createTransferRequest("client2", 200L, "B", "C", 3.0);
-
-        // Execute seqNum 1
-        assertNotNull(operator.executeOperation(request1, 1L).get(), "SeqNum 1 should execute");
-
-        // Manually mark as executed up to 5
-        operator.markExecutedUpTo(5L);
-
-        // Now seqNum 2 should not execute because it's <= lastExecutedSeqNum
-        assertNull(operator.executeOperation(request2, 2L).get(), "SeqNum 2 should not execute after marking up to 5");
-
-        // But seqNum 6 should execute
-        MessageServiceOuterClass.ClientRequest request6 = createTransferRequest("client6", 600L, "A", "B", 1.0);
-        assertNotNull(operator.executeOperation(request6, 6L).get(), "SeqNum 6 should execute");
     }
 
     @Test

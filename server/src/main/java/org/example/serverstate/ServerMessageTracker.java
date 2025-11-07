@@ -82,11 +82,16 @@ public class ServerMessageTracker {
         return true;
     }
 
-    public void appendWithId(ServerMessage message, String withIndex, int required) {
+    public boolean appendWithId(ServerMessage message, String withIndex, int required) {
         // Add to list and index
+
+        if (index.containsKey(withIndex)) {
+            logger.info("Duplicate message detected: index={}. Skipping addition.", withIndex);
+            return false;
+        }
+
         allMessages.add(message);
-        if (!index.containsKey(message.getMessageIndexWithSender()))
-            index.put(message.getMessageIndexWithSender(), message);
+        index.put(message.getMessageIndexWithSender(), message);
 
         // Record message in consensus tracker (using messageIndex without sender)
         if (required > 0) {
@@ -95,6 +100,7 @@ public class ServerMessageTracker {
                     withIndex, message.getMessageIndexWithSender());
         }
 
+        return true;
     }
 
     /**
@@ -231,6 +237,10 @@ public class ServerMessageTracker {
      */
     public ServerMessage findByIndex(String messageIndex) {
         return index.get(messageIndex);
+    }
+
+    public void removeFromConsensusTrackerByIndex(String messageIndex) {
+        consensusTracker.cancel(messageIndex);
     }
 
     /**

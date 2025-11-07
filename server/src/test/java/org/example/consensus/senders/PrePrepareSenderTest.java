@@ -66,8 +66,8 @@ class PrePrepareSenderTest {
 
     @Test
     void attemptPrePrepare_doesNotSend_whenNotPrimary() {
-        // Set view whose primary is n0 so n1 is not primary
-        state.setViewAndPrimary(0L);
+        // Set view whose primary is n2 so n1 is not primary
+        state.setViewAndPrimary(2L);
 
         sender = new MockPrePrepareSender("n1", state, new CommunicationLogger(), new MessageAuthenticator("n1"));
         sender.setActive(true);

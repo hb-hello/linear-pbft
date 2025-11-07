@@ -12,6 +12,7 @@ import org.example.messaging.MessageSender;
 import org.example.messaging.MessageUtil;
 import org.example.serverstate.ServerState;
 
+import java.util.List;
 import java.util.concurrent.ExecutorService;
 
 public class PrePrepareSender extends MessageSender {
@@ -51,8 +52,28 @@ public class PrePrepareSender extends MessageSender {
         byte[] digest = MessageUtil.generateDigest(clientRequest);
         ByteString digestByteString = ByteString.copyFrom(digest);
 
-        long seqNum = state.nextSeq();
+        long seqNum;
         String selfServerId = state.getServerId();
+
+        //for equivocation attack
+        List<Long> seqNumsForEquivocation = null;
+
+        if (MaliceInjector.isEquivocation() && !MaliceInjector.getEquivocationTargets().isEmpty()) {
+            seqNumsForEquivocation = state.nextTwoSeq();
+            // grab first seqNum for honest nodes
+            seqNum = seqNumsForEquivocation.get(0);
+            // grab second seqNum for equivocation targets
+            long nextSeqNum = seqNumsForEquivocation.get(1);
+
+            for (String targetNodeId : MaliceInjector.getEquivocationTargets()) {
+                if (!targetNodeId.equals(selfServerId)) {
+                    logger.info("MaliceInjector equivocation attack activated for PrePrepare, by incrementing seqNum from {} to {} for target {}",
+                            seqNum, nextSeqNum, targetNodeId);
+                    constructAndSendPrePrepare(clientRequest, targetNodeId, nextSeqNum, digestByteString);
+                }
+            }
+        } else seqNum = state.nextSeq();
+
 
         // for non-equivocation attack
         for (String targetNodeId : Config.getServerIdsExcept(selfServerId)) {
@@ -67,19 +88,8 @@ public class PrePrepareSender extends MessageSender {
             constructAndSendPrePrepare(clientRequest, targetNodeId, seqNum, digestByteString);
         }
 
-        //for equivocation attack
-        if (MaliceInjector.isEquivocation() && !MaliceInjector.getEquivocationTargets().isEmpty()) {
-            long previousSeqNum = seqNum;
-            seqNum = state.nextSeq();
-            for (String targetNodeId : MaliceInjector.getEquivocationTargets()) {
-                logger.info("MaliceInjector equivocation attack activated for PrePrepare, by incrementing seqNum from {} to {} for target {}",
-                        previousSeqNum, seqNum, targetNodeId);
-                constructAndSendPrePrepare(clientRequest, targetNodeId, seqNum, digestByteString);
-            }
-        }
-
         // After broadcasting PrePrepare, send Prepare to collector (so that collector gets a quorum of prepares)
-        
+
         prepareSender.sendPrepare(state.getViewNumber(), seqNum, digest);
     }
 
@@ -104,7 +114,6 @@ public class PrePrepareSender extends MessageSender {
         logger.info("Constructed PrePrepareRequest for seqNum {} in view {}",
                 seqNum, state.getViewNumber());
 
-        
 
         logger.info("Sending PrePrepare for seqNum {} in view {}",
                 request.getPrePrepareMessage().getSequenceNumber(),
@@ -112,11 +121,5 @@ public class PrePrepareSender extends MessageSender {
 
         send(targetNodeId, request, (stub, signed) ->
                 stub.prePrepare((MessageServiceOuterClass.PrePrepareRequest) signed));
-    }
-
-    // might not be needed
-    private void sendPrePrepare(String targetServerId, MessageServiceOuterClass.PrePrepareRequest prePrepare) {
-        logger.info("Sending PrePrepare to server {}: {}", targetServerId, prePrepare.getPrePrepareMessage().getViewNumber());
-        signAndSend(targetServerId, prePrepare, (stub, signed) -> stub.prePrepare((MessageServiceOuterClass.PrePrepareRequest) signed));
     }
 }

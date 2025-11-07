@@ -5,6 +5,7 @@ import org.apache.logging.log4j.Logger;
 import org.example.MessageServiceOuterClass;
 import org.example.config.Config;
 import org.example.statemachine.BankStateMachine;
+import org.example.messaging.MessageUtil;
 
 import java.util.HashMap;
 import java.util.List;
@@ -29,6 +30,10 @@ public class StateMachineOperator {
     private final BiConsumer<MessageServiceOuterClass.ClientRequest, MessageServiceOuterClass.ClientReply> replySender;
     private final BiConsumer<ServerState, Long> checkpointSender;
 
+    // Reply tracking moved here from ServerState
+    private final ConcurrentHashMap<String, Long> replyTimestamps = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, MessageServiceOuterClass.ClientReply> replyCache = new ConcurrentHashMap<>();
+
     // all methods should be called from within state's runSync
     public StateMachineOperator(ServerState state, OperationLog operationLog,
                                 BiConsumer<MessageServiceOuterClass.ClientRequest, MessageServiceOuterClass.ClientReply> replySender,
@@ -44,13 +49,6 @@ public class StateMachineOperator {
             t.setDaemon(true);
             return t;
         });
-    }
-
-    public void markExecutedUpTo(long executedSeqNum) {
-        pendingOperations.remove(executedSeqNum);
-        lastExecutedSeqNum = Math.max(lastExecutedSeqNum, executedSeqNum);
-        lastExecutedView = state.getViewNumber();
-        if (!pendingOperations.isEmpty()) executePendingOperations();
     }
 
     /**
@@ -91,6 +89,15 @@ public class StateMachineOperator {
         // Execute operation in the dedicated state machine executor
         // All checks must happen inside the executor to avoid race conditions
         return CompletableFuture.supplyAsync(() -> {
+
+            String clientId = request.getClientId();
+            // Use internal replyTimestamps instead of querying ServerState
+            Long lastTimestamp = replyTimestamps.get(clientId);
+            if (lastTimestamp != null && lastTimestamp >= request.getTimestamp()) {
+                logger.warn("Stale request from client {} with timestamp {}. Last reply timestamp is {}", clientId, request.getTimestamp(), lastTimestamp);
+                return null;
+            }
+
             // Add to pending operations if not already there
             if(!pendingOperations.containsKey(seqNum)) {
                 pendingOperations.put(seqNum, request);
@@ -120,6 +127,8 @@ public class StateMachineOperator {
             }
 
             logger.info("Executed operation with seqNum {}. Last executed seqNum is now {}, Now returning reply", seqNum, lastExecutedSeqNum);
+
+            rememberReply(reply);
 
             return reply;
         }, stateMachineExecutor);
@@ -172,6 +181,9 @@ public class StateMachineOperator {
             // Update lastExecutedView after successful execution
             lastExecutedView = state.getViewNumber();
 
+            // remember the reply
+            rememberReply(reply);
+
             // Send the reply to the client for the pending operation using the callback
             replySender.accept(nextRequest, reply);
         }
@@ -213,10 +225,44 @@ public class StateMachineOperator {
         lastExecutedView = 0L;
         pendingOperations.clear();
         stateMachine.reset();
+        // Clear reply caches when operator is reset
+        replyTimestamps.clear();
+        replyCache.clear();
     }
 
     public void shutdown() {
         stateMachineExecutor.shutdown();
     }
 
+    // Reply tracking methods moved from ServerState
+    public void rememberReply(MessageServiceOuterClass.ClientReply reply) {
+        if (reply == null) return;
+        String clientId = reply.getClientId();
+        long timestamp = reply.getTimestamp();
+        Long prev = replyTimestamps.get(clientId);
+        if (prev == null || timestamp >= prev) {
+            replyTimestamps.put(clientId, timestamp);
+        }
+        String requestId = MessageUtil.requestIdFor(clientId, timestamp);
+        if (!replyCache.containsKey(requestId)) {
+            logger.info("Remembering reply for clientId: {} timestamp: {} requestId: {}", clientId, timestamp, requestId);
+            replyCache.put(requestId, reply);
+        }
+    }
+
+    public Long lastReplyTimestamp(String clientId) {
+        return replyTimestamps.getOrDefault(clientId, 0L);
+    }
+
+    public MessageServiceOuterClass.ClientReply cachedReply(String clientId, long timestamp) {
+        return replyCache.get(MessageUtil.requestIdFor(clientId, timestamp));
+    }
+
+    public Map<String, Long> getClientReplyTimestamps() {
+        return Map.copyOf(replyTimestamps);
+    }
+
+    public Map<String, MessageServiceOuterClass.ClientReply> getClientReplyCache() {
+        return Map.copyOf(replyCache);
+    }
 }

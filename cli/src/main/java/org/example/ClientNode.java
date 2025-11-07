@@ -12,8 +12,9 @@ import org.example.statemachine.StateMachineOperation;
 import org.example.statemachine.TransferOp;
 
 import java.time.Duration;
-import java.util.concurrent.CancellationException;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.locks.Condition;
+import java.util.concurrent.locks.ReentrantLock;
 
 import static org.example.messaging.MessageUtil.requestIdFor;
 
@@ -25,6 +26,11 @@ public class ClientNode extends Node {
     private final ClientMessageSender sender;
     private final ClientMessageReceiver receiver;
     private final ConsensusMessageTracker<String, MessageServiceOuterClass.OperationResult> messageTracker;
+
+    // Pause support
+    private final ReentrantLock pauseLock = new ReentrantLock();
+    private final Condition unpaused = pauseLock.newCondition();
+    private volatile boolean paused = false;
 
     public ClientNode(String nodeId) {
         super(nodeId);
@@ -140,6 +146,7 @@ public class ClientNode extends Node {
      * @param operation The state machine operation to process
      */
     public void processOperation(StateMachineOperation operation) {
+
         MessageServiceOuterClass.ClientRequest clientRequest = generateClientRequest(operation, this.nodeId);
 
         String requestId = requestIdFor(clientRequest.getClientId(), clientRequest.getTimestamp());
@@ -150,14 +157,32 @@ public class ClientNode extends Node {
         // Consensus tracker will be implicitly created when first reply arrives
         // Keep retrying forever until consensus is reached
         while (true) {
-            boolean success = broadcastOrSendClientRequestWithTimeout(clientRequest);
-            if (success) {
-                break;
+            // If paused, wait here between retry attempts so operator can inspect server state
+            pauseLock.lock();
+            try {
+                if (paused) {
+                    logger.info("Client {} is paused; waiting to be resumed", this.nodeId);
+                    while (paused) {
+                        try {
+                            unpaused.await();
+                        } catch (InterruptedException ie) {
+                            Thread.currentThread().interrupt();
+                            logger.warn("Interrupted while paused: {}", ie.getMessage());
+                            return; // abort processing this operation
+                        }
+                    }
+                }
+            } finally {
+                pauseLock.unlock();
             }
-            // On timeout, forget primary to trigger broadcast on the next attempt
-            primaryServerId = null;
-            logger.info("Retrying request after timeout for client {} at ts {} (requestId={})", clientRequest.getClientId(), clientRequest.getTimestamp(), requestId);
-        }
+             boolean success = broadcastOrSendClientRequestWithTimeout(clientRequest);
+             if (success) {
+                 break;
+             }
+             // On timeout, forget primary to trigger broadcast on the next attempt
+             primaryServerId = null;
+             logger.info("Retrying request after timeout for client {} at ts {} (requestId={})", clientRequest.getClientId(), clientRequest.getTimestamp(), requestId);
+         }
     }
 
     private void handleOperationResult(MessageServiceOuterClass.ClientReply reply) {
@@ -225,5 +250,31 @@ public class ClientNode extends Node {
         this.receiver.shutdown();
         this.sender.shutdown();
         super.shutdown();
+    }
+
+    // Pause / resume control used by CLI
+    public void pause() {
+        pauseLock.lock();
+        try {
+            paused = true;
+            logger.info("Client {} paused", this.nodeId);
+        } finally {
+            pauseLock.unlock();
+        }
+    }
+
+    public void resume() {
+        pauseLock.lock();
+        try {
+            paused = false;
+            unpaused.signalAll();
+            logger.info("Client {} resumed", this.nodeId);
+        } finally {
+            pauseLock.unlock();
+        }
+    }
+
+    public boolean isPaused() {
+        return paused;
     }
 }

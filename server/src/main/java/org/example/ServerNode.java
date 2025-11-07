@@ -22,7 +22,6 @@ public class ServerNode extends Node {
     private final ServerMessageReceiver receiver;
 
     private final LivenessTimer livenessTimer;
-    private final LivenessTimer viewChangeTimer;
 
     private final ClientRequestSender clientRequestSender;
     private final ClientReplySender clientReplySender;
@@ -50,7 +49,6 @@ public class ServerNode extends Node {
         this.receiver = new ServerMessageReceiver(this, commLogger, auth);
 
         this.livenessTimer = new LivenessTimer(Config.getServerTimeoutMillis(), this::onLivenessTimeout);
-        this.viewChangeTimer = new LivenessTimer(Config.getViewChangeTimeoutMillis(), this::onViewChangeTimeout);
 
         ExecutorService networkExecutor = executorManager.getNetworkExecutor();
 
@@ -63,7 +61,7 @@ public class ServerNode extends Node {
         // Create ServerState with method references for sending replies and checkpoints
         // This breaks the circular dependency - StateMachineOperator gets callbacks that handle both concerns
         this.state = new ServerState(serverId, false, executorManager.getStateExecutor(), livenessTimer,
-                                      this::sendAndRememberReply, this.checkpointSender::sendCheckpoint);
+                                      this.clientReplySender::sendClientReply, this.checkpointSender::sendCheckpoint);
 
         this.clientRequestSender = new ClientRequestSender(serverId, commLogger, auth, networkExecutor);
         this.prepareSender = new PrepareSender(serverId, state, commLogger, auth, networkExecutor);
@@ -78,10 +76,10 @@ public class ServerNode extends Node {
         this.commitHandler = new CommitHandler(state, majorityCount(), commitSender, clientReplySender);
         this.checkpointHandler = new CheckpointHandler(state, majorityCount(), checkpointSender);
         this.stateMessageHandler = new StateMessageHandler(state);
-        this.newViewHandler = new NewViewHandler(state, auth, viewChangeTimer, prepareSender);
+        this.newViewHandler = new NewViewHandler(state, auth, livenessTimer, prepareSender);
 
         this.newViewSender = new NewViewSender(serverId, majorityCount(), commLogger, auth, checkpointHandler, networkExecutor);
-        this.viewChangeHandler = new ViewChangeHandler(state, auth, majorityCount(), viewChangeTimer, viewChangeSender, newViewSender);
+        this.viewChangeHandler = new ViewChangeHandler(state, auth, majorityCount(), livenessTimer, viewChangeSender, newViewSender);
     }
 
     public void setActive(boolean active) {
@@ -101,26 +99,16 @@ public class ServerNode extends Node {
     // Timer callbacks
 
     public void onLivenessTimeout() {
-        logger.warn("Liveness timeout occurred in view {}, triggering view change", state.getViewNumber());
-        for (MessageServiceOuterClass.ClientRequest request : state.getPendingOperations()) {
-            logger.info("Pending request from clientId: {} timestamp: {}",
-                    request.getClientId(), request.getTimestamp());
-        }
-
-        state.setViewChangeInProgress(true);
-        viewChangeSender.broadcastViewChange(state);
-    }
-
-    public void onViewChangeTimeout() {
         logger.warn("View change timeout occurred in view {}, re-broadcasting view change message", state.getViewNumber());
 
         livenessTimer.stop();
 
         if (state.getLastExecutedView() < state.getViewNumber()) {
-            logger.info("Extending view change timeout for view {}", state.getViewNumber() + 1);
-            viewChangeTimer.addToTimeoutMillis(Config.getViewChangeTimeoutMillis());
-        } else viewChangeTimer.setTimeoutMillis(Config.getViewChangeTimeoutMillis());
+            logger.info("Extending liveness timeout for view {}", state.getViewNumber() + 1);
+            livenessTimer.addToTimeoutMillis(Config.getViewChangeTimeoutMillis());
+        } else livenessTimer.setTimeoutMillis(Config.getViewChangeTimeoutMillis());
 
+        state.setViewChangeInProgress(true);
         viewChangeSender.broadcastViewChange(state);
     }
 
@@ -128,7 +116,7 @@ public class ServerNode extends Node {
         logger.info("Resetting server node {}", nodeId);
         state.reset();
         livenessTimer.stop();
-        viewChangeTimer.stop();
+        MaliceInjector.init(null);
         commLogger.reset();
     }
 
@@ -212,14 +200,6 @@ public class ServerNode extends Node {
         return state.getMessagesForType(ServerMessage.NEW_VIEW);
     }
 
-    // Helper method used as callback for StateMachineOperator
-    // Sends reply to client and remembers it in state
-    private void sendAndRememberReply(MessageServiceOuterClass.ClientRequest request,
-                                      MessageServiceOuterClass.ClientReply reply) {
-        clientReplySender.sendClientReply(request, reply);
-        state.rememberReply(reply);
-    }
-
     public void shutdown() {
         logger.info("Shutting down server node {}", nodeId);
         clientRequestSender.shutdown();
@@ -232,9 +212,7 @@ public class ServerNode extends Node {
         viewChangeSender.shutdown();
         newViewSender.shutdown();
         livenessTimer.shutdown();
-        viewChangeTimer.shutdown();
         receiver.shutdown();
-        MaliceInjector.init(null);
         super.shutdown();
         logger.info("Server node {} shut down complete", nodeId);
     }

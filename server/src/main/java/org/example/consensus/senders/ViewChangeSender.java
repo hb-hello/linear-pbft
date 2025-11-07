@@ -46,7 +46,7 @@ public class ViewChangeSender extends MessageSender {
             return;
         }
 
-        logger.info("Preparing ViewChange message for view {}", state.getViewNumber() + 1);
+        logger.info("Preparing ViewChange message for view {}", newViewNumber);
 
         MessageServiceOuterClass.ViewChangeMessage.Builder viewChangeBuilder = MessageServiceOuterClass.ViewChangeMessage.newBuilder();
 
@@ -57,7 +57,7 @@ public class ViewChangeSender extends MessageSender {
         // fetch checkpoint certificate
         logger.info("Fetching checkpoint messages for view {} and seq num {}",
                 state.getViewNumber(), lastStableCheckpointSeqNum);
-        List<ServerMessage> checkpointMessages = state.getQuorumMessages(ServerMessage.CHECKPOINT, state.getViewNumber(), lastStableCheckpointSeqNum);
+        List<ServerMessage> checkpointMessages = state.getQuorumMessages(ServerMessage.CHECKPOINT, currentView, lastStableCheckpointSeqNum);
         viewChangeBuilder.addAllCheckpointMessages(checkpointMessages.stream().map((msg) -> (MessageServiceOuterClass.CheckpointMessage) msg.getMessage()).toList());
 
         // fetch prepared certificate
@@ -72,7 +72,11 @@ public class ViewChangeSender extends MessageSender {
 
         // set view
 
-        state.setViewAndPrimary(newViewNumber);
+        if (!state.setViewAndPrimary(newViewNumber)) {
+            logger.info("Failed to set new view {} and primary, another view change may have completed first",
+                    newViewNumber);
+            return;
+        }
 
         logger.info("Incrementing view from {} to {}", currentView, newViewNumber);
         viewChangeBuilder.setViewNumber(newViewNumber);
@@ -89,7 +93,6 @@ public class ViewChangeSender extends MessageSender {
 
         logger.info("Broadcasting ViewChange message for new view {}", newViewNumber);
 
-        
 
         broadcast(signedViewChange, (stub, signed) -> stub.viewChange((MessageServiceOuterClass.ViewChangeMessage) signed));
         logger.info("Broadcasted ViewChange message for new view {}", newViewNumber);

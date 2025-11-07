@@ -50,8 +50,9 @@ public final class ServerState {
     private LivenessTimer livenessTimer;
 
     // Reply tracking and caches
-    private final ConcurrentHashMap<String, Long> replyTimestamps = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, MessageServiceOuterClass.ClientReply> replyCache = new ConcurrentHashMap<>();
+    // private final ConcurrentHashMap<String, Long> replyTimestamps = new ConcurrentHashMap<>();
+    // private final ConcurrentHashMap<String, MessageServiceOuterClass.ClientReply> replyCache = new ConcurrentHashMap<>();
+    // Reply tracking moved into StateMachineOperator; keep ServerState wrappers that delegate to it
 
     // Checkpoints and message history
     private final ConcurrentHashMap<Long, MessageServiceOuterClass.CheckpointMessage> stableCheckpoints = new ConcurrentHashMap<>();
@@ -72,7 +73,7 @@ public final class ServerState {
 
     public ServerState(String serverId, boolean isFaulty, ExecutorService stateExec, LivenessTimer livenessTimer,
                        java.util.function.BiConsumer<MessageServiceOuterClass.ClientRequest,
-                                                      MessageServiceOuterClass.ClientReply> replySender,
+                               MessageServiceOuterClass.ClientReply> replySender,
                        java.util.function.BiConsumer<ServerState, Long> checkpointSender) {
         this.stateExec = stateExec;
         // Initialize header using synchronous entry to ensure serialization early
@@ -185,12 +186,16 @@ public final class ServerState {
         return primaryServerId;
     }
 
-    public void setViewAndPrimary(long newView) {
-        runSync(() -> {
+    public boolean setViewAndPrimary(long newView) {
+        return runSync(() -> {
+            if (this.viewNumber > newView) {
+                logger.warn("Attempted to set view to {} but current view is {}, ignoring", newView, this.viewNumber);
+                return false;
+            }
             viewNumber = newView;
             primaryServerId = computePrimaryServerId(newView);
             collectorServerId = computeCollectorServerId(newView);
-            return null;
+            return true;
         });
     }
 
@@ -244,7 +249,7 @@ public final class ServerState {
     public Object getLatestStableCheckpointSnapshot() {
         return runSync(() -> stableCheckpointSnapshots.get(latestStableCheckpointSeqNum));
     }
-    
+
     public long getLatestStableCheckpointSeqNum() {
         return runSync(() -> latestStableCheckpointSeqNum);
     }
@@ -263,6 +268,15 @@ public final class ServerState {
 
     public long nextSeq() {
         return runSync(() -> ++seqNum);
+    }
+
+    // reserving two sequence numbers for equivocation attack
+    public List<Long> nextTwoSeq() {
+        return runSync(() -> {
+            long first = ++seqNum;
+            long second = ++seqNum;
+            return Arrays.asList(first, second);
+        });
     }
 
     public long nextView() {
@@ -316,7 +330,10 @@ public final class ServerState {
     }
 
     public void setViewChangeInProgress(boolean viewChangeInProgress) {
+        logger.info("Setting viewChangeInProgress to {}", viewChangeInProgress);
         this.viewChangeInProgress = viewChangeInProgress;
+        logger.info("Removing view change minimum quorum messages from consensus tracker");
+        serverMessageTracker.removeFromConsensusTrackerByIndex(ServerMessage.VIEW_CHANGE);
     }
 
     public void ensureInView(long viewNumber) {
@@ -353,11 +370,11 @@ public final class ServerState {
     }
 
     public Map<String, Long> getClientReplyTimestamps() {
-        return runSync(() -> Map.copyOf(replyTimestamps));
+        return runSync(() -> stateMachineOperator.getClientReplyTimestamps());
     }
 
     public Map<String, MessageServiceOuterClass.ClientReply> getClientReplyCache() {
-        return runSync(() -> Map.copyOf(replyCache));
+        return runSync(() -> stateMachineOperator.getClientReplyCache());
     }
 
     // State-machine operations — example transfer and read-only balance
@@ -366,7 +383,7 @@ public final class ServerState {
     public CompletableFuture<MessageServiceOuterClass.ClientReply> executeRequest(MessageServiceOuterClass.ClientRequest request, ByteString digest, long seqNum) {
 
         // Handle null request (no-op) case
-        if (request == null) {
+        if (request == null || !request.hasOperation()) {
             logger.info("Encountered null request for seqNum {}, checking the digest to verify if no-op", seqNum);
             ByteString nullDigest = ByteString.copyFrom(new byte[32]);
             if (nullDigest.equals(digest)) {
@@ -377,35 +394,35 @@ public final class ServerState {
                         .build();
 
                 request = MessageServiceOuterClass.ClientRequest.newBuilder().setClientId("no-op")
-                .setTimestamp(System.currentTimeMillis())
-                .setOperation(noOp)
-                .build();
+                        .setTimestamp(System.currentTimeMillis())
+                        .setOperation(noOp)
+                        .build();
             }
         }
 
         logger.info("Attempting to execute operation of type: {}", request.getOperation().getOpCase());
         return stateMachineOperator.executeOperation(request, seqNum)
-            .thenApply(reply -> {
-                // After operation completes, update timer based on pending operations
-                runSync(() -> {
+                .thenApply(reply -> {
+                    // After operation completes, update timer based on pending operations
+                    runSync(() -> {
 
-                    if (livenessTimer == null) {
-                        logger.warn("Liveness timer is null, cannot update after operation");
-                        return;
-                    }
+                        if (livenessTimer == null) {
+                            logger.warn("Liveness timer is null, cannot update after operation");
+                            return;
+                        }
 
-                    boolean hasPending = stateMachineOperator.areOperationsPending();
-                    logger.info("Operation completed for seqNum {}. Pending operations: {}", seqNum, hasPending);
-                    if(hasPending) {
-                        logger.info("Restarting liveness timer - operations still pending");
-                        livenessTimer.restart();
-                    } else {
-                        logger.info("Stopping liveness timer - no pending operations");
-                        livenessTimer.stop();
-                    }
+                        boolean hasPending = stateMachineOperator.areOperationsPending();
+                        logger.info("Operation completed for seqNum {}. Pending operations: {}", seqNum, hasPending);
+                        if (hasPending) {
+                            logger.info("Restarting liveness timer - operations still pending");
+                            livenessTimer.restart();
+                        } else {
+                            logger.info("Stopping liveness timer - no pending operations");
+                            livenessTimer.stop();
+                        }
+                    });
+                    return reply;
                 });
-                return reply;
-            });
     }
 
     public CompletableFuture<MessageServiceOuterClass.ClientReply> executeReadOnlyRequest(MessageServiceOuterClass.ClientRequest request) {
@@ -419,7 +436,7 @@ public final class ServerState {
     public String printSnapshotStateMachine() {
         return runSync(() -> stateMachineOperator.snapshotToString());
     }
-    
+
     public boolean isExecuted(long sequenceNumber) {
         return runSync(() -> stateMachineOperator.isExecuted(sequenceNumber));
     }
@@ -440,31 +457,18 @@ public final class ServerState {
 
     public void rememberReply(MessageServiceOuterClass.ClientReply reply) {
         runSync(() -> {
-            String clientId = reply.getClientId();
-            long timestamp = reply.getTimestamp();
-            Long prev = replyTimestamps.get(clientId);
-            if (prev == null || timestamp >= prev) {
-                replyTimestamps.put(clientId, timestamp);
-            }
-            String requestId = MessageUtil.requestIdFor(clientId, timestamp);
-            if (!replyCache.containsKey(requestId)) {
-                logger.info("Remembering reply for clientId: {} timestamp: {} requestId: {}", clientId, timestamp, requestId);
-                replyCache.put(requestId, reply);
-            }
+            stateMachineOperator.rememberReply(reply);
         });
     }
 
     public Long lastReplyTimestamp(String clientId) {
         logger.info("Fetching last reply timestamp for clientId: {}", clientId);
-        return runSync(() -> {
-            logger.info("Current reply timestamp {}", replyTimestamps.getOrDefault(clientId, 0L));
-            return replyTimestamps.getOrDefault(clientId, 0L);
-        });
+        return runSync(() -> stateMachineOperator.lastReplyTimestamp(clientId));
     }
 
     public MessageServiceOuterClass.ClientReply cachedReply(String clientId, long timestamp) {
         logger.info("Fetching cached reply for clientId: {} timestamp: {}", clientId, timestamp);
-        return runSync(() -> replyCache.get(MessageUtil.requestIdFor(clientId, timestamp)));
+        return runSync(() -> stateMachineOperator.cachedReply(clientId, timestamp));
     }
 
     // Logs and buffers
@@ -477,8 +481,9 @@ public final class ServerState {
         ServerMessage serverMsg = ServerMessage.wrap(msg);
         logger.info("Appending server message: {} {}", serverMsg.toDetailedString(), clientRequest != null ? "with client request" : "without client request");
         return runSync(() -> {
-            logger.info("Is message type pre prepare? {}", Objects.equals(serverMsg.getMessageType(), ServerMessage.PRE_PREPARE));
-            if (Objects.equals(serverMsg.getMessageType(), ServerMessage.PRE_PREPARE)) operationLog.addOperation(serverMsg.getSequenceNumber().orElse(-1L), clientRequest, OperationStatus.PREPREPARED);
+//            logger.info("Is message type pre prepare? {}", Objects.equals(serverMsg.getMessageType(), ServerMessage.PRE_PREPARE));
+            if (Objects.equals(serverMsg.getMessageType(), ServerMessage.PRE_PREPARE))
+                operationLog.addOperation(serverMsg.getSequenceNumber().orElse(-1L), clientRequest, OperationStatus.PREPREPARED);
             return serverMessageTracker.append(serverMsg, required);
         });
     }
@@ -512,8 +517,11 @@ public final class ServerState {
     public boolean appendClientRequest(Message msg) {
         return runSync(() -> {
             String digestString = MessageUtil.digestToString(MessageUtil.generateDigest(msg));
-            if (livenessTimer != null) livenessTimer.startIfNotRunning();
-            return serverMessageTracker.appendWithoutConsensus(ServerMessage.wrap(msg), digestString);
+            if (serverMessageTracker.appendWithoutConsensus(ServerMessage.wrap(msg), digestString)) {
+                if (livenessTimer != null) livenessTimer.startIfNotRunning(); // start timer only if request is new
+                return true;
+            }
+            return false;
         });
     }
 
@@ -531,10 +539,10 @@ public final class ServerState {
         return runSync(() -> serverMessageTracker.appendAndAwaitConsensus(msg, timeout, required));
     }
 
-    public void appendViewChangeForConsensusByType(MessageServiceOuterClass.ViewChangeMessage viewChange, int required) {
-        runSync(() -> {
+    public boolean appendViewChangeForConsensusByType(MessageServiceOuterClass.ViewChangeMessage viewChange, int required) {
+        return runSync(() -> {
             String messageIndex = viewChange.getDescriptorForType().getName();
-            serverMessageTracker.appendWithId(ServerMessage.wrap(viewChange), messageIndex, required);
+            return serverMessageTracker.appendWithId(ServerMessage.wrap(viewChange), messageIndex, required);
         });
     }
 
@@ -547,8 +555,9 @@ public final class ServerState {
 
     public boolean appendAndCheckMinQuorumForViewChange(MessageServiceOuterClass.ViewChangeMessage viewChange, int required) {
         return runSync(() -> {
-            appendViewChangeForConsensusByType(viewChange, required);
-            return checkQuorumForViewChangeByType(viewChange);
+            if (appendViewChangeForConsensusByType(viewChange, required))
+                return checkQuorumForViewChangeByType(viewChange);
+            return false;
         });
     }
 
@@ -673,7 +682,7 @@ public final class ServerState {
         return runSync(() -> {
 
             // injecting crash attack
-            if(MaliceInjector.injectCrashAttack(getServerId())) {
+            if (MaliceInjector.injectCrashAttack(getServerId())) {
                 logger.info("MaliceInjector crash attack activated - returning false for isPrepared");
                 return false;
             }
@@ -682,6 +691,7 @@ public final class ServerState {
 
             if (isPreparedCache.containsKey(sequenceNumber) && isPreparedCache.get(sequenceNumber) == viewNumber) {
                 logger.info("Prepared cache found for seq {}: true", sequenceNumber);
+                if (livenessTimer != null) logger.info("Committed at seq {}, time remaining to execute : {}", sequenceNumber, livenessTimer.getRemainingTimeMillis());
                 return true;
             }
 
@@ -707,6 +717,7 @@ public final class ServerState {
                     logger.info("View {} seq {} is prepared, caching view number in isPreparedCache", viewNumber, sequenceNumber);
                     isPreparedCache.put(sequenceNumber, viewNumber);
                     operationLog.updateStatus(sequenceNumber, OperationStatus.PREPARED);
+                    if (livenessTimer != null) logger.info("Prepared at seq {}, time remaining to execute : {}", sequenceNumber, livenessTimer.getRemainingTimeMillis());
                     return true;
                 }
                 return false;
@@ -725,7 +736,7 @@ public final class ServerState {
                 logger.warn("No prepared cache entry for seq {}, checking for prepared certificate in logs", sequenceNumber);
 
                 long viewNum = viewNumber;
-                while(viewNum >= INITIAL_VIEW) {
+                while (viewNum >= INITIAL_VIEW) {
                     if (isPrepared(viewNum, sequenceNumber)) {
                         logger.info("Found prepared certificate for seq {} in view {}", sequenceNumber, viewNum);
                         break;
@@ -740,6 +751,7 @@ public final class ServerState {
             }
 
             long viewNumber = isPreparedCache.get(sequenceNumber);
+            logger.info("Found cached prepared view for seq {} : view {}", sequenceNumber, viewNumber);
 
             ServerMessage prePrepareMsg = findPrePrepare(viewNumber, sequenceNumber);
             if (prePrepareMsg == null) {
@@ -823,6 +835,7 @@ public final class ServerState {
                 }
                 if (Objects.equals(digest, getPrePrepareDigest(viewNumber, sequenceNumber))) {
                     operationLog.updateStatus(sequenceNumber, OperationStatus.COMMITTED);
+                    if (livenessTimer != null) logger.info("Committed at seq {}, time remaining to execute : {}", sequenceNumber, livenessTimer.getRemainingTimeMillis());
                     return true;
                 }
                 return false;
@@ -858,9 +871,9 @@ public final class ServerState {
 
     // Async variants for composition where needed
 
-    public CompletableFuture<Void> setViewAndPrimaryAsync(long newView) {
+    public CompletableFuture<Boolean> setViewAndPrimaryAsync(long newView) {
         return runAsync(() -> {
-            setViewAndPrimary(newView);
+            return setViewAndPrimary(newView);
         });
     }
 
@@ -881,16 +894,16 @@ public final class ServerState {
             collectorServerId = computeCollectorServerId(viewNumber);
             isFaulty = false;
             seqNum = 0L;
+            viewChangeInProgress = false;
             stateMachineOperator.reset();
             operationLog.clear();
-            replyTimestamps.clear();
-            replyCache.clear();
             stableCheckpoints.clear();
             stableCheckpointSnapshots.clear();
             serverMessageTracker.clear();
             outputBuffer.clear();
             resetWatermarks();
             requestDurations.clear();
+            isPreparedCache.clear();
             return null;
         });
     }

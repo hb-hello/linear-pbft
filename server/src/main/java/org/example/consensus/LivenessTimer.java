@@ -13,6 +13,7 @@ public class LivenessTimer {
 
     private long timeoutMillis;
     private final Runnable timeoutCallback;
+    private long startTime;
 
     private final ScheduledExecutorService scheduler =
             Executors.newScheduledThreadPool(1, r -> {
@@ -62,6 +63,7 @@ public class LivenessTimer {
             return;
         }
 
+        startTime = System.currentTimeMillis();
         logger.info("Starting liveness timer with timeout of {} ms", timeoutMillis);
         running = true;
 
@@ -96,6 +98,15 @@ public class LivenessTimer {
         return timeoutMillis;
     }
 
+    public synchronized long getRemainingTimeMillis() {
+        if (!running) {
+            return 0;
+        }
+        long elapsed = System.currentTimeMillis() - startTime;
+        long remaining = timeoutMillis - elapsed;
+        return Math.max(remaining, 0);
+    }
+
     public synchronized void stop() {
         if (!running) {
             logger.debug("Timer is not running, nothing to stop");
@@ -103,6 +114,7 @@ public class LivenessTimer {
         }
 
         logger.info("Stopping liveness timer");
+        logger.info("Remaining time was {} ms", getRemainingTimeMillis());
         running = false;
 
         // Cancel the current task instead of shutting down the entire scheduler

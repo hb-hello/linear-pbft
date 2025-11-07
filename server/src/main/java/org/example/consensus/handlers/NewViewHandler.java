@@ -73,7 +73,7 @@ public class NewViewHandler {
             long seqNum = prePrepareMessage.getSequenceNumber();
 
             if (!auth.verify(prePrepareMessage)) {
-                logger.warn("Invalid signature for PrePrepare message in view {} seq {}",
+                logger.warn("Invalid signature for PrePrepare message for view {} seq {} in Prepared certificate",
                         prePrepareMessage.getViewNumber(), seqNum);
                 return false;
             }
@@ -196,6 +196,12 @@ public class NewViewHandler {
             long seqNum = prePrepare.getSequenceNumber();
             seqNumsInPrePrepares.add(seqNum);
 
+            if(!auth.verify(prePrepare)) {
+                logger.warn("Invalid signature for PrePrepare message in view {} seq {}",
+                        prePrepare.getViewNumber(), seqNum);
+                return false;
+            }
+
             // Verify view number
             if (prePrepare.getViewNumber() != newViewNumber) {
                 logger.warn("PrePrepare message has view number {} but expected {}",
@@ -243,15 +249,9 @@ public class NewViewHandler {
         long currentView = state.getViewNumber();
         long newViewNumber = newView.getViewNumber();
 
-        if (newViewNumber <= currentView) {
+        if (newViewNumber < currentView) {
             logger.warn("Received NewViewMessage for view {} which is not greater than current view {}. Ignoring.",
                     newViewNumber, currentView);
-            return;
-        }
-
-        // Verify signature of the new view message itself
-        if (!auth.verify(newView)) {
-            logger.warn("Invalid signature for NewViewMessage for view {}", newViewNumber);
             return;
         }
 
@@ -313,16 +313,20 @@ public class NewViewHandler {
         logger.info("Applying NewView for view {}", newViewNumber);
 
         // Update to the new view number and primary
-        state.setViewAndPrimary(newViewNumber);
-
-        // Process each pre-prepare message from the new view
-        for (MessageServiceOuterClass.PrePrepareMessage prePrepareMessage : newView.getPrePrepareMessagesList()) {
-            processPrePrepareFromNewView(prePrepareMessage);
+        if(!state.setViewAndPrimary(newViewNumber)) {
+            logger.warn("Failed to set new view {} and primary, another view change may have completed first",
+                    newViewNumber);
+            return;
         }
 
         // Stop view change timer and clear view change state
         viewChangeTimer.stop();
         state.setViewChangeInProgress(false);
+
+        // Process each pre-prepare message from the new view
+        for (MessageServiceOuterClass.PrePrepareMessage prePrepareMessage : newView.getPrePrepareMessagesList()) {
+            processPrePrepareFromNewView(prePrepareMessage);
+        }
 
         logger.info("Successfully applied NewView for view {}", newViewNumber);
     }

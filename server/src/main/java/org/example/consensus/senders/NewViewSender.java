@@ -3,7 +3,6 @@ package org.example.consensus.senders;
 import com.google.protobuf.ByteString;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.example.MaliceInjector;
 import org.example.MessageServiceOuterClass;
 import org.example.consensus.handlers.CheckpointHandler;
 import org.example.crypto.MessageAuthenticator;
@@ -76,7 +75,7 @@ public class NewViewSender extends MessageSender {
         List<MessageServiceOuterClass.PrePrepareMessage> prePrepareMessages = new ArrayList<>();
         ByteString nullDigest = ByteString.copyFrom(new byte[32]);
 
-        for (long i = minSeqNum; i <= maxSeqNum; i++) {
+        for (long i = Math.max(minSeqNum, 1L); i <= maxSeqNum; i++) {
             if (!pendingRequests.containsKey(i)) {
                 logger.info("Appending null digest view {} seq {} as it is missing from pending requests", newViewNumber, i);
                 MessageServiceOuterClass.PrePrepareMessage nullPrePrepare = MessageServiceOuterClass.PrePrepareMessage.newBuilder()
@@ -85,7 +84,9 @@ public class NewViewSender extends MessageSender {
                         .setDigest(nullDigest)
                         .build();
                 prePrepareMessages.add(nullPrePrepare);
-                state.appendServerMessage(nullPrePrepare, quorumSize);
+                MessageServiceOuterClass.PrePrepareMessage signedNullPrePrepare = (MessageServiceOuterClass.PrePrepareMessage) auth.sign(nullPrePrepare);
+
+                state.appendServerMessage(signedNullPrePrepare, quorumSize);
                 continue;
             }
             MessageServiceOuterClass.PrePrepareMessage prePrepare = MessageServiceOuterClass.PrePrepareMessage.newBuilder()
@@ -93,7 +94,11 @@ public class NewViewSender extends MessageSender {
                     .setSequenceNumber(i)
                     .setDigest(pendingRequests.get(i))
                     .build();
-            prePrepareMessages.add(prePrepare);
+
+            MessageServiceOuterClass.PrePrepareMessage signedMsg = (MessageServiceOuterClass.PrePrepareMessage) auth.sign(prePrepare);
+
+            state.appendServerMessage(signedMsg, quorumSize);
+            prePrepareMessages.add(signedMsg);
 
             MessageServiceOuterClass.ClientRequest clientRequest = state.findClientRequest(pendingRequests.get(i));
             if (clientRequest == null) {
@@ -108,43 +113,43 @@ public class NewViewSender extends MessageSender {
         return prePrepareMessages;
     }
 
-    public void broadcastNewView(ServerState state, long newViewNumber) {
+    public void broadcastNewView(ServerState state) {
+        long viewNumber = state.getViewNumber();
+
         if (!state.isPrimary()) {
             logger.warn("Not sending new view because another server is primary");
             return;
         }
 
-        if (newViewNumber < state.getViewNumber()) {
-            logger.info("Not sending NewView message for view {} because current view is {}",
-                    newViewNumber, state.getViewNumber());
-            return;
-        }
-
         logger.info("Preparing to broadcast NewView message to all servers");
-        String messageIndex = ServerMessage.VIEW_CHANGE + ":" + newViewNumber;
+        String messageIndex = ServerMessage.VIEW_CHANGE + ":" + viewNumber;
         List<MessageServiceOuterClass.ViewChangeMessage> viewChangeMessages = new ArrayList<>(state.getQuorumMessages(messageIndex).stream().map((msg) -> (MessageServiceOuterClass.ViewChangeMessage) msg.getMessage()).toList());
 
         // add own view change message if not already present
-        MessageServiceOuterClass.ViewChangeMessage ownViewChange = state.findViewChange(newViewNumber, state.getServerId());
+        MessageServiceOuterClass.ViewChangeMessage ownViewChange = state.findViewChange(viewNumber, state.getServerId());
         if (ownViewChange != null && !viewChangeMessages.contains(ownViewChange)) {
             viewChangeMessages.add(ownViewChange);
         }
+
+        // mark view change as completed
+        state.setViewChangeInProgress(false);
 
         long minSeqNum = calculateMinSequenceNumber(viewChangeMessages);
         long maxSeqNum = calculateMaxSequenceNumber(viewChangeMessages);
 
         if (minSeqNum >= maxSeqNum) {
-            logger.info("Not sending NewView message for view {} because there are no pending requests to carry over", newViewNumber);
+            logger.info("Not sending NewView message for view {} because there are no pending requests to carry over", viewNumber);
             return;
         }
 
         Map<Long, ByteString> pendingRequests = getPendingRequests(viewChangeMessages);
-        List<MessageServiceOuterClass.PrePrepareMessage> prePrepareMessages = generateAndAppendNewPrePrepareMessages(state, newViewNumber, minSeqNum, maxSeqNum, pendingRequests);
+        List<MessageServiceOuterClass.PrePrepareMessage> prePrepareMessages = generateAndAppendNewPrePrepareMessages(state, viewNumber, minSeqNum, maxSeqNum, pendingRequests);
 
         logger.info("Generated {} PrePrepare messages for NewView message for view {} with seq num range {}-{}, now sending New View",
-                prePrepareMessages.size(), newViewNumber, minSeqNum, maxSeqNum);
+                prePrepareMessages.size(), viewNumber, minSeqNum, maxSeqNum);
         MessageServiceOuterClass.NewViewMessage newView = MessageServiceOuterClass.NewViewMessage.newBuilder()
-                .setViewNumber(newViewNumber)
+                .setViewNumber(viewNumber)
+                .addAllViewChangeMessages(viewChangeMessages)
                 .addAllPrePrepareMessages(prePrepareMessages)
                 .build();
 
@@ -152,13 +157,13 @@ public class NewViewSender extends MessageSender {
 
         if (state.getLatestStableCheckpointSeqNum() < minSeqNum) {
             logger.info("Adding stable checkpoint seq num {} from view change messages view {} to state",
-                    minSeqNum, newViewNumber);
+                    minSeqNum, viewNumber);
 
             List<MessageServiceOuterClass.CheckpointMessage> checkpoints = getCheckpointsForSeqNum(viewChangeMessages, minSeqNum);
 
             if (checkpoints == null || checkpoints.isEmpty()) {
                 logger.error("No checkpoint messages found for stable checkpoint seq num {} in view change messages for view {}, cannot add stable checkpoint",
-                        minSeqNum, newViewNumber);
+                        minSeqNum, viewNumber);
                 return;
             }
 
@@ -168,20 +173,18 @@ public class NewViewSender extends MessageSender {
                 }
             } catch (Exception e) {
                 logger.error("Failed to add stable checkpoint seq num {} from view change messages for view {}: {}",
-                        minSeqNum, newViewNumber, e);
+                        minSeqNum, viewNumber, e);
                 return;
             }
             return;
         }
 
         if (!state.appendServerMessage(signedNewView, quorumSize)) {
-            logger.info("Failed to append New View message to state for view {}, likely due to duplicate check", newViewNumber);
+            logger.info("Failed to append New View message to state for view {}, likely due to duplicate check", viewNumber);
             return;
         }
 
-        
-
         broadcast(signedNewView, (stub, signed) -> stub.newView((MessageServiceOuterClass.NewViewMessage) signed));
-        logger.info("Broadcasted NewView message for view {}", newViewNumber);
+        logger.info("Broadcasted NewView message for view {}", viewNumber);
     }
 }

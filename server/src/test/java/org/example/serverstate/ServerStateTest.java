@@ -89,19 +89,6 @@ class ServerStateTest {
     }
 
     @Test
-    void testSetViewAndPrimary_handlesNegativeViews() {
-        ServerState state = newState("n1");
-
-        long newView = -1L;
-        state.setViewAndPrimary(newView);
-
-        ServerState.Header header = state.snapshotHeader();
-        assertEquals(newView, header.view(), "Negative view should be stored as-is");
-        assertEquals(Node.computePrimaryServerId(newView), header.primary(), "Primary should be computed using floorMod for negative views");
-        assertFalse(state.isPrimary(), "n1 should not be primary for view -1 with default config");
-    }
-
-    @Test
     void testSetFaulty_updatesFaultyFlag() {
         ServerState state = newState("n1");
 

@@ -116,8 +116,8 @@ class PrePrepareHandlerTest {
 
     @Test
     void testHandle_wrongView_doesNotAddToState() {
-        // Setup: State is at view 0, but PrePrepare is for view 1
-        state.setViewAndPrimary(0L);
+        // Setup: State is at view 2, but PrePrepare is for view 1
+        state.setViewAndPrimary(2L);
         MessageServiceOuterClass.ClientRequest clientRequest = createClientRequest("client1", 1000L);
         MessageServiceOuterClass.PrePrepareRequest prePrepareRequest =
                 createPrePrepareRequest(1L, 1L, clientRequest);

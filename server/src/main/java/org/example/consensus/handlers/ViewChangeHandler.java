@@ -126,23 +126,26 @@ public class ViewChangeHandler {
             logger.info("ViewChangeMessage for view {} has not reached full quorum yet", viewNumber);
 
             // this should happen once before we reach quorum - which is when view number will be incremented and primary will be updated
-            if (state.appendAndCheckMinQuorumForViewChange(viewChangeMessage, ServerNode.majorityCountForViewChange()) && !state.isViewChangeInProgress()) {
+            if (state.appendAndCheckMinQuorumForViewChange(viewChangeMessage, ServerNode.majorityCountForViewChange())) {
                 logger.info("ViewChangeMessage for view {} has reached minimum quorum for requesting view change, setting view change in progress to true and broadcasting ViewChange message",
                         viewNumber);
-                viewChangeSender.broadcastViewChange(state, state.getViewNumber(), state.getViewChangeQuorumMinView());
+                state.setViewChangeInProgress(true);
+                viewChangeSender.broadcastViewChange(state, state.getViewNumber(), viewChangeMessage.getViewNumber());
                 return;
             }
 
-            logger.info("Minimum quorum for view change not yet reached for view {}", viewNumber);
+            logger.info("Minimum quorum for view change not yet reached for view {} or view change already in progress", viewNumber);
             return;
         }
+
+        state.setViewAndPrimary(viewNumber);
 
         if (MaliceInjector.injectCrashAttack(state.getServerId())) {
             logger.info("MaliceInjector crash attack activated - refraining from broadcasting NewView message");
             return;
         }
 
-        newViewSender.broadcastNewView(state, viewNumber);
+        newViewSender.broadcastNewView(state);
 
         logger.info("ViewChangeMessage for view {} has reached full quorum, starting view change timer",
                 viewNumber);

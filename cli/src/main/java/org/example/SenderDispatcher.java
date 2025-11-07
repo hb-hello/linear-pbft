@@ -110,4 +110,33 @@ public final class SenderDispatcher implements AutoCloseable {
 
     public record Status(long submitted, long completed, long outstanding) {
     }
+
+    // Pause/resume control
+    public boolean pauseClient(String clientId) {
+        ClientNode client = clients.get(clientId);
+        if (client == null) return false;
+        client.pause();
+        return true;
+    }
+
+    public boolean resumeClient(String clientId) {
+        ClientNode client = clients.get(clientId);
+        if (client == null) return false;
+        client.resume();
+        return true;
+    }
+
+    public boolean isClientPaused(String clientId) {
+        ClientNode client = clients.get(clientId);
+        if (client == null) return false;
+        return client.isPaused();
+    }
+
+    public void pauseAll() {
+        clients.values().forEach(ClientNode::pause);
+    }
+
+    public void resumeAll() {
+        clients.values().forEach(ClientNode::resume);
+    }
 }
