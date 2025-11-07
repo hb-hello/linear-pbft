@@ -17,11 +17,11 @@ public class MockCommitSender extends CommitSender {
     private int sendCount = 0;
 
     public MockCommitSender(String nodeId, int quorumSize, ServerState state) {
-        super(nodeId, quorumSize, null, state, null, new MessageAuthenticator(nodeId));
+        super(nodeId, quorumSize, null, state, null, new MessageAuthenticator(nodeId), null);
     }
 
     public MockCommitSender(String nodeId, int quorumSize, ServerState state, CommunicationLogger commLogger, MessageAuthenticator auth) {
-        super(nodeId, quorumSize, null, state, commLogger, auth != null ? auth : new MessageAuthenticator(nodeId));
+        super(nodeId, quorumSize, null, state, commLogger, auth != null ? auth : new MessageAuthenticator(nodeId), null);
     }
 
     @Override

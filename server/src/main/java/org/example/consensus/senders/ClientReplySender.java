@@ -9,13 +9,15 @@ import org.example.messaging.CommunicationLogger;
 import org.example.messaging.MessageSender;
 import org.example.serverstate.ServerState;
 
+import java.util.concurrent.ExecutorService;
+
 public class ClientReplySender extends MessageSender {
     private static final Logger logger = LogManager.getLogger(ClientReplySender.class);
 
     private final String serverId;
 
-    public ClientReplySender(String serverId, CommunicationLogger commLogger, MessageAuthenticator auth) {
-        super(serverId, commLogger, auth);
+    public ClientReplySender(String serverId, CommunicationLogger commLogger, MessageAuthenticator auth, ExecutorService networkExecutor) {
+        super(serverId, commLogger, auth, networkExecutor);
         this.serverId = serverId;
     }
 
@@ -28,9 +30,7 @@ public class ClientReplySender extends MessageSender {
             return;
         }
 
-        MaliceInjector.injectTimingAttack(serverId);
-
-        logger.info("Sending ClientReply to client {}: {} {}", clientId, reply.getResult().getOpCase(), reply.getResult().getResult());
+        logger.info("Sending ClientReply to client {}: {}", clientId, reply.getResult().getOpCase());
         signAndSend(clientId, reply, (stub, signed) -> stub.reply((MessageServiceOuterClass.ClientReply) signed));
     }
 
@@ -38,8 +38,6 @@ public class ClientReplySender extends MessageSender {
         String clientId = request.getClientId();
         long timestamp = request.getTimestamp();
         MessageServiceOuterClass.ClientReply cachedReply = state.cachedReply(clientId, timestamp);
-
-        MaliceInjector.injectTimingAttack(serverId);
 
         if (cachedReply != null) {
             logger.info("Resending cached ClientReply to client {}: {} {}", clientId,

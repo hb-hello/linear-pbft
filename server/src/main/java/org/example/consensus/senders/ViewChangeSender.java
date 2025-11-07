@@ -12,6 +12,7 @@ import org.example.serverstate.ServerState;
 
 import java.util.Iterator;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
 
 public class ViewChangeSender extends MessageSender {
     private static final Logger logger = LogManager.getLogger(ViewChangeSender.class);
@@ -19,8 +20,8 @@ public class ViewChangeSender extends MessageSender {
     private final int quorumSize;
 
     public ViewChangeSender(String serverId, int quorumSize,
-                         CommunicationLogger commLogger, MessageAuthenticator auth) {
-        super(serverId, commLogger, auth);
+                         CommunicationLogger commLogger, MessageAuthenticator auth, ExecutorService networkExecutor) {
+        super(serverId, commLogger, auth, networkExecutor);
         this.quorumSize = quorumSize;
     }
 
@@ -64,7 +65,7 @@ public class ViewChangeSender extends MessageSender {
                 state.getViewNumber());
         for (Iterator<Long> it = state.getSeqNumsBetweenWatermarks(); it.hasNext();) {
             long seqNum = it.next();
-            MessageServiceOuterClass.PreparedCertificate preparedCertificate = state.getPreparedCertificate(currentView, seqNum);
+            MessageServiceOuterClass.PreparedCertificate preparedCertificate = state.getPreparedCertificate(seqNum);
             if (preparedCertificate != null) {
                 viewChangeBuilder.addPreparedCertificates(preparedCertificate);
             }
@@ -89,7 +90,7 @@ public class ViewChangeSender extends MessageSender {
 
         logger.info("Broadcasting ViewChange message for new view {}", newViewNumber);
 
-        MaliceInjector.injectTimingAttack(state.getServerId());
+        
 
         broadcast(signedViewChange, (stub, signed) -> stub.viewChange((MessageServiceOuterClass.ViewChangeMessage) signed));
         logger.info("Broadcasted ViewChange message for new view {}", newViewNumber);

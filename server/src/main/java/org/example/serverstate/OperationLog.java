@@ -30,7 +30,7 @@ public record OperationLog(ConcurrentHashMap<Long, OperationLogEntry> entries) {
     }
 
     public OperationLogEntry getOperation(long sequenceNumber) {
-        return entries.get(sequenceNumber);
+        return entries.getOrDefault(sequenceNumber, new OperationLogEntry(MessageServiceOuterClass.ClientRequest.getDefaultInstance(), OperationStatus.NONE));
     }
 
     public OperationStatus getOperationStatus(long sequenceNumber) {

@@ -70,13 +70,8 @@ public class ServerMessageService extends MessageServiceGrpc.MessageServiceImplB
 
         logger.info("Signature verified for Pre-Prepare message from server {}", request.getPrePrepareMessage().getSignerId());
 
-        communicationLogger.add(
-                String.format("MESSAGE: <PRE-PREPARE, <%d, %d>> received from server %s",
-                        request.getPrePrepareMessage().getViewNumber(),
-                        request.getPrePrepareMessage().getSequenceNumber(),
-                        request.getPrePrepareMessage().getSignerId()
-                )
-        );
+        // Log using CommunicationLogger overload
+        communicationLogger.add(prePrepareMessage);
 
         serverNode.handlePrePrepare(request);
     }
@@ -84,13 +79,8 @@ public class ServerMessageService extends MessageServiceGrpc.MessageServiceImplB
     @Override
     public void prepare(MessageServiceOuterClass.PrepareMessage request, StreamObserver<Empty> responseObserver) {
 
-        communicationLogger.add(
-                String.format("MESSAGE: <PREPARE, <%d, %d, d>> received from server %s",
-                        request.getViewNumber(),
-                        request.getSequenceNumber(),
-                        request.getSignerId()
-                )
-        );
+        // Log using CommunicationLogger overload
+        communicationLogger.add(request);
 
         if (!auth.verify(request)) {
             logger.warn("Invalid signature for Prepare message from server {}", request.getSignerId());
@@ -104,13 +94,8 @@ public class ServerMessageService extends MessageServiceGrpc.MessageServiceImplB
 
     @Override
     public void commit(MessageServiceOuterClass.CommitMessage request, StreamObserver<Empty> responseObserver) {
-        communicationLogger.add(
-                String.format("MESSAGE: <COMMIT, %d, %d, d> received from server %s",
-                        request.getViewNumber(),
-                        request.getSequenceNumber(),
-                        request.getSignerId()
-                )
-        );
+        // Log using CommunicationLogger overload
+        communicationLogger.add(request);
 
         if (!auth.verify(request)) {
             logger.warn("Invalid signature for Commit message from server {}", request.getSignerId());
@@ -122,12 +107,8 @@ public class ServerMessageService extends MessageServiceGrpc.MessageServiceImplB
 
     @Override
     public void checkpoint(MessageServiceOuterClass.CheckpointMessage request, StreamObserver<Empty> responseObserver) {
-        communicationLogger.add(
-                String.format("MESSAGE: <CHECKPOINT, %d> received from server %s",
-                        request.getSequenceNumber(),
-                        request.getSignerId()
-                )
-        );
+        // Log using CommunicationLogger overload
+        communicationLogger.add(request);
 
         if (!auth.verify(request)) {
             logger.warn("Invalid signature for Checkpoint message from server {}", request.getSignerId());
@@ -161,14 +142,8 @@ public class ServerMessageService extends MessageServiceGrpc.MessageServiceImplB
 
     @Override
     public void viewChange(MessageServiceOuterClass.ViewChangeMessage request, StreamObserver<Empty> responseObserver) {
-        communicationLogger.add(
-                String.format("MESSAGE: <VIEW CHANGE, %d, %d, C, P, %s> received from server %s",
-                        request.getViewNumber(),
-                        request.getLastStableSequenceNumber(),
-                        request.getSignerId(),
-                        request.getSignerId()
-                )
-        );
+        // Log using CommunicationLogger overload
+        communicationLogger.add(request);
 
         logger.info("MESSAGE: <VIEW CHANGE, {}, {}> received from server {}",
                 request.getViewNumber(),
@@ -186,12 +161,8 @@ public class ServerMessageService extends MessageServiceGrpc.MessageServiceImplB
 
     @Override
     public void newView(MessageServiceOuterClass.NewViewMessage request, StreamObserver<Empty> responseObserver) {
-        communicationLogger.add(
-                String.format("MESSAGE: <NEW VIEW, %d> received from server %s",
-                        request.getViewNumber(),
-                        request.getSignerId()
-                )
-        );
+        // Log using CommunicationLogger overload
+        communicationLogger.add(request);
 
         if (!auth.verify(request)) {
             logger.warn("Invalid signature for New View message from server {}", request.getSignerId());

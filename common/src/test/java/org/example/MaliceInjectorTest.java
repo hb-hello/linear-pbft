@@ -39,7 +39,7 @@ public class MaliceInjectorTest {
     }
 
     @Test
-    public void testInjectInDarkAttack_filtersTargets() {
+    public void testInjectInDarkAttack_checksTargetMembership() {
         // Create dark malice targeting n2 and mark n1 as malicious
         MessageServiceOuterClass.Malice darkMalice = MessageServiceOuterClass.Malice.newBuilder()
                 .setMaliceType("dark")
@@ -48,16 +48,12 @@ public class MaliceInjectorTest {
                 .build();
         MaliceInjector.init(Collections.singleton(darkMalice));
 
-        LinkedHashSet<String> servers = new LinkedHashSet<>();
-        servers.add("n1");
-        servers.add("n2");
-        servers.add("n3");
+        // For server n1 (malicious), target n2 should be considered dark (true), n3 should not (false)
+        assertTrue(MaliceInjector.injectInDarkAttack("n1", "n2"));
+        assertFalse(MaliceInjector.injectInDarkAttack("n1", "n3"));
 
-        Set<String> filtered = MaliceInjector.injectInDarkAttack("n1", servers);
-        assertEquals(2, filtered.size());
-        Iterator<String> it = filtered.iterator();
-        assertEquals("n1", it.next());
-        assertEquals("n3", it.next());
+        // For a non-malicious server, dark attack should not apply
+        assertFalse(MaliceInjector.injectInDarkAttack("n0", "n2"));
     }
 
     @Test
@@ -83,8 +79,8 @@ public class MaliceInjectorTest {
     }
 
     @Test
-    public void testInjectEquivocationAttack_incrementsSequenceNumber() {
-        // Enable equivocation malice targeting n1
+    public void testInjectEquivocationAttack_checksTargetMembership() {
+        // Enable equivocation malice targeting n1 and mark n0 as malicious
         MessageServiceOuterClass.Malice eqMalice = MessageServiceOuterClass.Malice.newBuilder()
                 .setMaliceType("equivocation")
                 .addTargetServerId("n1")
@@ -92,19 +88,11 @@ public class MaliceInjectorTest {
                 .build();
         MaliceInjector.init(Collections.singleton(eqMalice));
 
-        MessageServiceOuterClass.PrePrepareMessage msg = MessageServiceOuterClass.PrePrepareMessage.newBuilder()
-                .setViewNumber(1)
-                .setSequenceNumber(5)
-                .setSignerId("n0")
-                .build();
+        // For server n0 (malicious), target n1 should return true, n2 should return false
+        assertTrue(MaliceInjector.injectEquivocationAttack("n0", "n1"));
+        assertFalse(MaliceInjector.injectEquivocationAttack("n0", "n2"));
 
-        MessageServiceOuterClass.PrePrepareMessage modified = (MessageServiceOuterClass.PrePrepareMessage)
-                MaliceInjector.injectEquivocationAttack("n0", "n1", msg);
-        assertEquals(6, modified.getSequenceNumber());
-
-        // Ensure non-target server is not affected
-        MessageServiceOuterClass.PrePrepareMessage unchanged = (MessageServiceOuterClass.PrePrepareMessage)
-                MaliceInjector.injectEquivocationAttack("n0", "n2", msg);
-        assertEquals(5, unchanged.getSequenceNumber());
+        // For a non-malicious server, equivocation attack should not apply
+        assertFalse(MaliceInjector.injectEquivocationAttack("n1", "n0"));
     }
 }

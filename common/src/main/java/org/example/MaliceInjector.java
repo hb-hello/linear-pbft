@@ -60,7 +60,7 @@ public class MaliceInjector {
         if (malice == null) {
             logger.info("Null malice provided, skipping update");
             return;
-        };
+        }
         String type = malice.getMaliceType();
         if (type.isEmpty()) return;
         // Collect any malicious server ids listed in the malice message
@@ -150,26 +150,15 @@ public class MaliceInjector {
     }
 
     /**
-     * If dark malice is enabled, remove the servers listed in darkTargets from the provided set.
-     * Returns an unmodifiable set (preserves iteration order of the input).
+     * If dark malice is enabled, determine whether a given targetServerId should be considered dark
+     * for messages originating from serverId. Returns true when dark attack is enabled, serverId is
+     * marked malicious and targetServerId is in the configured darkTargets set.
      */
-    public static Set<String> injectInDarkAttack(String serverId, Set<String> serverIds) {
-        // Only apply dark attack for configured malicious server IDs
-        if (!isDark() || serverId == null || !maliciousServerIds.contains(serverId)) {
-            return serverIds == null ? Collections.emptySet() : Collections.unmodifiableSet(new LinkedHashSet<>(serverIds));
-        }
-
-        if (serverIds == null || serverIds.isEmpty()) {
-            return Collections.emptySet();
-        }
-
-        LinkedHashSet<String> result = new LinkedHashSet<>();
-        for (String sid : serverIds) {
-            if (!darkTargets.contains(sid)) {
-                result.add(sid);
-            }
-        }
-        return Collections.unmodifiableSet(result);
+    public static boolean injectInDarkAttack(String serverId, String targetServerId) {
+        if (!isDark()) return false;
+        if (serverId == null || targetServerId == null) return false;
+        if (!maliciousServerIds.contains(serverId)) return false;
+        return darkTargets.contains(targetServerId);
     }
     /**
      * Sign utility: if the given protobuf message has a "signature" BYTES field and that field is non-empty,
@@ -204,46 +193,54 @@ public class MaliceInjector {
      * and the message is a PrePrepareMessage, increment its sequence_number by 1 and return the modified message.
      * Otherwise return the original message unchanged.
      */
-    public static Message injectEquivocationAttack(String serverId, String targetServerId, Message message) {
-        if (!isEquivocation()) return message;
-        if (serverId == null || targetServerId == null || message == null) return message;
+//    public static Message injectEquivocationAttack(String serverId, String targetServerId, Message message) {
+//        if (!isEquivocation()) return message;
+//        if (serverId == null || targetServerId == null || message == null) return message;
+//        // Only apply if serverId is configured as malicious
+//        if (!maliciousServerIds.contains(serverId)) return message;
+//
+//        // Only operate on PrePrepareMessage types
+//        String typeName = message.getDescriptorForType().getName();
+//        if (!typeName.equals(org.example.messaging.ServerMessage.PRE_PREPARE)) return message;
+//
+//        // Only affect servers listed in equivocationTargets
+//        if (!equivocationTargets.contains(targetServerId)) return message;
+//
+//        Descriptors.Descriptor desc = message.getDescriptorForType();
+//        Descriptors.FieldDescriptor fd = desc.findFieldByName("sequence_number");
+//        if (fd == null) return message;
+//
+//        // Ensure it's an integer/long field
+//        if (fd.getType() != Descriptors.FieldDescriptor.Type.INT64
+//                && fd.getType() != Descriptors.FieldDescriptor.Type.INT32) {
+//            return message;
+//        }
+//
+//        Object valObj = message.getField(fd);
+//        long current = 0L;
+//        if (valObj instanceof Number) {
+//            current = ((Number) valObj).longValue();
+//        }
+//
+//        long updated = current + 1L;
+//
+//        Message.Builder builder = message.toBuilder();
+//        // setField expects the boxed type matching the field (Long for INT64, Integer for INT32)
+//        if (fd.getType() == Descriptors.FieldDescriptor.Type.INT64) {
+//            builder.setField(fd, updated);
+//        } else {
+//            // INT32
+//            builder.setField(fd, (int) updated);
+//        }
+//        return builder.build();
+//    }
+
+    public static boolean injectEquivocationAttack(String serverId, String targetServerId) {
+        if (!isEquivocation()) return false;
+        if (serverId == null || targetServerId == null) return false;
         // Only apply if serverId is configured as malicious
-        if (!maliciousServerIds.contains(serverId)) return message;
-
-        // Only operate on PrePrepareMessage types
-        String typeName = message.getDescriptorForType().getName();
-        if (!typeName.equals(org.example.messaging.ServerMessage.PRE_PREPARE)) return message;
-
-        // Only affect servers listed in equivocationTargets
-        if (!equivocationTargets.contains(targetServerId)) return message;
-
-        Descriptors.Descriptor desc = message.getDescriptorForType();
-        Descriptors.FieldDescriptor fd = desc.findFieldByName("sequence_number");
-        if (fd == null) return message;
-
-        // Ensure it's an integer/long field
-        if (fd.getType() != Descriptors.FieldDescriptor.Type.INT64
-                && fd.getType() != Descriptors.FieldDescriptor.Type.INT32) {
-            return message;
-        }
-
-        Object valObj = message.getField(fd);
-        long current = 0L;
-        if (valObj instanceof Number) {
-            current = ((Number) valObj).longValue();
-        }
-
-        long updated = current + 1L;
-
-        Message.Builder builder = message.toBuilder();
-        // setField expects the boxed type matching the field (Long for INT64, Integer for INT32)
-        if (fd.getType() == Descriptors.FieldDescriptor.Type.INT64) {
-            builder.setField(fd, updated);
-        } else {
-            // INT32
-            builder.setField(fd, (int) updated);
-        }
-        return builder.build();
+        if (!maliciousServerIds.contains(serverId)) return false;
+        return equivocationTargets.contains(targetServerId);
     }
 
     /**

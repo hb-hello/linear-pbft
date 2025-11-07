@@ -9,12 +9,14 @@ import org.example.messaging.CommunicationLogger;
 import org.example.messaging.MessageSender;
 import org.example.serverstate.ServerState;
 
+import java.util.concurrent.ExecutorService;
+
 public class ClientRequestSender extends MessageSender {
     private static final Logger logger = LogManager.getLogger(ClientRequestSender.class);
 
     public ClientRequestSender(String serverId,
-                        CommunicationLogger commLogger, MessageAuthenticator auth) {
-        super(serverId, commLogger, auth);
+                        CommunicationLogger commLogger, MessageAuthenticator auth, ExecutorService networkExecutor) {
+        super(serverId, commLogger, auth, networkExecutor);
     }
 
     public void forwardClientRequest(String targetServerId, MessageServiceOuterClass.ClientRequest request) {

@@ -13,6 +13,7 @@ import org.example.messaging.ServerMessage;
 import org.example.serverstate.ServerState;
 
 import java.util.*;
+import java.util.concurrent.ExecutorService;
 
 public class NewViewSender extends MessageSender {
     private static final Logger logger = LogManager.getLogger(NewViewSender.class);
@@ -21,8 +22,8 @@ public class NewViewSender extends MessageSender {
     private final CheckpointHandler checkpointHandler;
 
     public NewViewSender(String serverId, int quorumSize,
-                            CommunicationLogger commLogger, MessageAuthenticator auth, CheckpointHandler checkpointHandler) {
-        super(serverId, commLogger, auth);
+                            CommunicationLogger commLogger, MessageAuthenticator auth, CheckpointHandler checkpointHandler, ExecutorService networkExecutor) {
+        super(serverId, commLogger, auth, networkExecutor);
         this.quorumSize = quorumSize;
         this.checkpointHandler = checkpointHandler;
     }
@@ -178,7 +179,7 @@ public class NewViewSender extends MessageSender {
             return;
         }
 
-        MaliceInjector.injectTimingAttack(state.getServerId());
+        
 
         broadcast(signedNewView, (stub, signed) -> stub.newView((MessageServiceOuterClass.NewViewMessage) signed));
         logger.info("Broadcasted NewView message for view {}", newViewNumber);

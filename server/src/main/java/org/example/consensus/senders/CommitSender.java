@@ -12,6 +12,7 @@ import org.example.messaging.ServerMessage;
 import org.example.serverstate.ServerState;
 
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
 
 public class CommitSender extends MessageSender {
     private static final Logger logger = LogManager.getLogger(CommitSender.class);
@@ -21,8 +22,8 @@ public class CommitSender extends MessageSender {
     private final ClientReplySender clientReplySender;
 
     public CommitSender(String serverId, int quorumSize, ClientReplySender clientReplySender, ServerState state,
-                        CommunicationLogger commLogger, MessageAuthenticator auth) {
-        super(serverId, commLogger, auth);
+                        CommunicationLogger commLogger, MessageAuthenticator auth, ExecutorService networkExecutor) {
+        super(serverId, commLogger, auth, networkExecutor);
         this.state = state;
         this.quorumSize = quorumSize;
         this.clientReplySender = clientReplySender;
@@ -52,7 +53,7 @@ public class CommitSender extends MessageSender {
 
         // Send the signed Commit to the collector
         if (!state.isCollector()) {
-            MaliceInjector.injectTimingAttack(state.getServerId());
+            
             send(state.getCollectorServerId(), signedCommitMsg, (stub, signed) -> stub.commit((org.example.MessageServiceOuterClass.CommitMessage) signed));
         };
         logger.info("Sent Commit for view {} seq {}", viewNumber, sequenceNumber);
@@ -92,7 +93,7 @@ public class CommitSender extends MessageSender {
             return;
         };
 
-        MaliceInjector.injectTimingAttack(state.getServerId());
+        
 
         broadcast(signedCommitMsg, (stub, signed) -> stub.commit((MessageServiceOuterClass.CommitMessage) signed));
         logger.info("Broadcasted Aggregated Commit for view {} seq {}", viewNumber, sequenceNumber);

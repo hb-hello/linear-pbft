@@ -13,12 +13,11 @@ import org.example.serverstate.OperationStatus;
 import org.example.serverstate.ServerState;
 
 import java.util.List;
+import java.util.concurrent.ExecutorService;
 
 public class ServerNode extends Node {
 
     private static final Logger logger = LogManager.getLogger(ServerNode.class);
-
-    private final int MAJORITY_COUNT = majorityCount();
 
     private final ServerMessageReceiver receiver;
 
@@ -53,33 +52,35 @@ public class ServerNode extends Node {
         this.livenessTimer = new LivenessTimer(Config.getServerTimeoutMillis(), this::onLivenessTimeout);
         this.viewChangeTimer = new LivenessTimer(Config.getViewChangeTimeoutMillis(), this::onViewChangeTimeout);
 
+        ExecutorService networkExecutor = executorManager.getNetworkExecutor();
+
         // Create ClientReplySender first
-        this.clientReplySender = new ClientReplySender(serverId, commLogger, auth);
+        this.clientReplySender = new ClientReplySender(serverId, commLogger, auth, networkExecutor);
 
         // Create CheckpointSender
-        this.checkpointSender = new CheckpointSender(serverId, commLogger, auth);
+        this.checkpointSender = new CheckpointSender(serverId, commLogger, auth, networkExecutor);
 
         // Create ServerState with method references for sending replies and checkpoints
         // This breaks the circular dependency - StateMachineOperator gets callbacks that handle both concerns
         this.state = new ServerState(serverId, false, executorManager.getStateExecutor(), livenessTimer,
                                       this::sendAndRememberReply, this.checkpointSender::sendCheckpoint);
 
-        this.clientRequestSender = new ClientRequestSender(serverId, commLogger, auth);
-        this.prepareSender = new PrepareSender(serverId, state, commLogger, auth);
-        this.prePrepareSender = new PrePrepareSender(serverId, state, commLogger, auth, prepareSender);
-        this.commitSender = new CommitSender(serverId, MAJORITY_COUNT, clientReplySender, state, commLogger, auth);
-        this.stateMessageSender = new StateMessageSender(serverId, state, commLogger, auth);
-        this.viewChangeSender = new ViewChangeSender(serverId, majorityCount(), commLogger, auth);
+        this.clientRequestSender = new ClientRequestSender(serverId, commLogger, auth, networkExecutor);
+        this.prepareSender = new PrepareSender(serverId, state, commLogger, auth, networkExecutor);
+        this.prePrepareSender = new PrePrepareSender(serverId, state, commLogger, auth, prepareSender, networkExecutor);
+        this.commitSender = new CommitSender(serverId, majorityCount(), clientReplySender, state, commLogger, auth, networkExecutor);
+        this.stateMessageSender = new StateMessageSender(serverId, state, commLogger, auth, networkExecutor);
+        this.viewChangeSender = new ViewChangeSender(serverId, majorityCount(), commLogger, auth, networkExecutor);
 
         this.clientRequestHandler = new ClientRequestHandler(state, clientRequestSender, clientReplySender, prePrepareSender);
         this.prePrepareHandler = new PrePrepareHandler(state, auth, prepareSender);
-        this.prepareHandler = new PrepareHandler(state, MAJORITY_COUNT, prepareSender, commitSender);
-        this.commitHandler = new CommitHandler(state, MAJORITY_COUNT, commitSender, clientReplySender);
-        this.checkpointHandler = new CheckpointHandler(state, MAJORITY_COUNT, checkpointSender);
+        this.prepareHandler = new PrepareHandler(state, majorityCount(), prepareSender, commitSender);
+        this.commitHandler = new CommitHandler(state, majorityCount(), commitSender, clientReplySender);
+        this.checkpointHandler = new CheckpointHandler(state, majorityCount(), checkpointSender);
         this.stateMessageHandler = new StateMessageHandler(state);
         this.newViewHandler = new NewViewHandler(state, auth, viewChangeTimer, prepareSender);
 
-        this.newViewSender = new NewViewSender(serverId, majorityCount(), commLogger, auth, checkpointHandler);
+        this.newViewSender = new NewViewSender(serverId, majorityCount(), commLogger, auth, checkpointHandler, networkExecutor);
         this.viewChangeHandler = new ViewChangeHandler(state, auth, majorityCount(), viewChangeTimer, viewChangeSender, newViewSender);
     }
 

@@ -28,7 +28,7 @@ public class ClientNode extends Node {
 
     public ClientNode(String nodeId) {
         super(nodeId);
-        this.sender = new ClientMessageSender(nodeId, commLogger, auth);
+        this.sender = new ClientMessageSender(nodeId, commLogger, auth, executorManager.getNetworkExecutor());
         this.receiver = new ClientMessageReceiver(this, auth);
 
         // Initialize message tracker with extractors for ClientReply messages

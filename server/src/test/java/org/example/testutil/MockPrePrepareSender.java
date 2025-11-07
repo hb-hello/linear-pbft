@@ -19,7 +19,7 @@ public class MockPrePrepareSender extends PrePrepareSender {
     private int attemptCount = 0;
 
     public MockPrePrepareSender(String nodeId, ServerState state, CommunicationLogger commLogger, MessageAuthenticator auth) {
-        super(nodeId, state, commLogger, auth, new MockPrepareSender(nodeId, state));
+        super(nodeId, state, commLogger, auth, new MockPrepareSender(nodeId, state), null);
         this.mockState = state;
     }
 

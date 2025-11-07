@@ -13,6 +13,7 @@ import org.example.messaging.ServerMessage;
 import org.example.serverstate.ServerState;
 
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
 
 public class PrepareSender extends MessageSender {
     private static final Logger logger = LogManager.getLogger(PrepareSender.class);
@@ -20,8 +21,8 @@ public class PrepareSender extends MessageSender {
     private final ServerState state;
 
     public PrepareSender(String serverId, ServerState state,
-                         CommunicationLogger commLogger, MessageAuthenticator auth) {
-        super(serverId, commLogger, auth);
+                         CommunicationLogger commLogger, MessageAuthenticator auth, ExecutorService networkExecutor) {
+        super(serverId, commLogger, auth, networkExecutor);
         this.state = state;
     }
 
@@ -55,7 +56,7 @@ public class PrepareSender extends MessageSender {
             return;
         }
 
-        MaliceInjector.injectTimingAttack(state.getServerId());
+        
 
         send(state.getCollectorServerId(), signedPrepareMsg, (stub, signed) -> stub.prepare((MessageServiceOuterClass.PrepareMessage) signed));
         logger.info("Sent Prepare for view {} seq {}", viewNumber, sequenceNumber);
@@ -103,7 +104,7 @@ public class PrepareSender extends MessageSender {
             return;
         };
 
-        MaliceInjector.injectTimingAttack(state.getServerId());
+        
 
         broadcast(signedPrepareMsg, (stub, signed) -> stub.prepare((MessageServiceOuterClass.PrepareMessage) signed));
         logger.info("Broadcasted Aggregated Prepare for view {} seq {}", viewNumber, sequenceNumber);

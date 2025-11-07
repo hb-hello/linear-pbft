@@ -58,6 +58,9 @@ public final class ServerState {
     private final ConcurrentHashMap<Long, Object> stableCheckpointSnapshots = new ConcurrentHashMap<>();
     private final ServerMessageTracker serverMessageTracker = new ServerMessageTracker();
 
+    // store latest view for each prepared seq num -> key is seq num and value is view number
+    private final ConcurrentHashMap<Long, Long> isPreparedCache = new ConcurrentHashMap<>();
+
     // Output buffer drained by networking; enqueue from actor for ordering with state updates
     private final BlockingQueue<Object> outputBuffer = new LinkedBlockingQueue<>();
 
@@ -692,6 +695,11 @@ public final class ServerState {
 
 //            logger.info("Checking if prepared for view {} seq {}", viewNumber, sequenceNumber);
 
+            if (isPreparedCache.containsKey(sequenceNumber) && isPreparedCache.get(sequenceNumber) == viewNumber) {
+                logger.info("Prepared cache found for seq {}: true", sequenceNumber);
+                return true;
+            }
+
             if (!hasPrePrepare(viewNumber, sequenceNumber)) {
                 logger.info("No PrePrepare for view {} seq {}, cannot be prepared", viewNumber, sequenceNumber);
                 return false;
@@ -709,7 +717,13 @@ public final class ServerState {
                     logger.info("Digest from prepares is null for view {} seq {}, cannot be prepared", viewNumber, sequenceNumber);
                     return false;
                 }
-                return Objects.equals(digest, getPrePrepareDigest(viewNumber, sequenceNumber));
+
+                if (Objects.equals(digest, getPrePrepareDigest(viewNumber, sequenceNumber))) {
+                    logger.info("View {} seq {} is prepared, caching view number in isPreparedCache", viewNumber, sequenceNumber);
+                    isPreparedCache.put(sequenceNumber, viewNumber);
+                    return true;
+                }
+                return false;
             } else {
                 logger.info("Not enough Prepare messages for view {} seq {}, cannot be prepared", viewNumber, sequenceNumber);
                 return false;
@@ -717,9 +731,29 @@ public final class ServerState {
         });
     }
 
-    public MessageServiceOuterClass.PreparedCertificate getPreparedCertificate(long viewNumber, long sequenceNumber) {
+    public MessageServiceOuterClass.PreparedCertificate getPreparedCertificate(long sequenceNumber) {
         return runSync(() -> {
             MessageServiceOuterClass.PreparedCertificate.Builder certBuilder = MessageServiceOuterClass.PreparedCertificate.newBuilder();
+
+            if (!isPreparedCache.containsKey(sequenceNumber)) {
+                logger.warn("No prepared cache entry for seq {}, checking for prepared certificate in logs", sequenceNumber);
+
+                long viewNum = viewNumber;
+                while(viewNum >= INITIAL_VIEW) {
+                    if (isPrepared(viewNum, sequenceNumber)) {
+                        logger.info("Found prepared certificate for seq {} in view {}", sequenceNumber, viewNum);
+                        break;
+                    }
+                    viewNum--;
+                }
+
+                if (viewNum < INITIAL_VIEW) {
+                    logger.warn("No prepared certificate found for seq {} in any view", sequenceNumber);
+                    return null;
+                }
+            }
+
+            long viewNumber = isPreparedCache.get(sequenceNumber);
 
             ServerMessage prePrepareMsg = findPrePrepare(viewNumber, sequenceNumber);
             if (prePrepareMsg == null) {

@@ -12,14 +12,16 @@ import org.example.messaging.MessageUtil;
 import org.example.serverstate.ServerState;
 import org.example.statemachine.BankStateMachine;
 
+import java.util.concurrent.ExecutorService;
+
 public class StateMessageSender  extends MessageSender {
     private static final Logger logger = LogManager.getLogger(StateMessageSender.class);
 
     private final ServerState state;
 
     public StateMessageSender(String serverId, ServerState state,
-                         CommunicationLogger commLogger, MessageAuthenticator auth) {
-        super(serverId, commLogger, auth);
+                         CommunicationLogger commLogger, MessageAuthenticator auth, ExecutorService networkExecutor) {
+        super(serverId, commLogger, auth, networkExecutor);
         this.state = state;
     }
 
@@ -40,7 +42,7 @@ public class StateMessageSender  extends MessageSender {
                 .setDigest(digest)
                 .build();
 
-        MaliceInjector.injectTimingAttack(state.getServerId());
+        
 
         signAndSend(targetServerId, stateMessage, (stub, signed) -> stub.stateResponse((MessageServiceOuterClass.StateMessage) signed));
         logger.info("Sent state message to server {}", targetServerId);

@@ -15,13 +15,14 @@ import org.example.messaging.MessageUtil;
 import org.example.serverstate.ServerState;
 
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
 
 public class CheckpointSender extends MessageSender {
     private static final Logger logger = LogManager.getLogger(CheckpointSender.class);
 
     public CheckpointSender(String serverId,
-                         CommunicationLogger commLogger, MessageAuthenticator auth) {
-        super(serverId, commLogger, auth);
+                            CommunicationLogger commLogger, MessageAuthenticator auth, ExecutorService networkExecutor) {
+        super(serverId, commLogger, auth, networkExecutor);
     }
 
     private ByteString generateCheckpointDigest(ServerState state) {
@@ -61,7 +62,7 @@ public class CheckpointSender extends MessageSender {
             return;
         };
 
-        MaliceInjector.injectTimingAttack(state.getServerId());
+
 
         broadcast(signedCheckpointMsg, (stub, signed) -> stub.checkpoint((MessageServiceOuterClass.CheckpointMessage) signed));
         logger.info("Sent Checkpoint for view {} seq {}", viewNumber, sequenceNumber);

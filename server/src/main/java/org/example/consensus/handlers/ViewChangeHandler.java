@@ -58,12 +58,10 @@ public class ViewChangeHandler {
 
     public boolean isValid(List<MessageServiceOuterClass.PreparedCertificate> preparedCertificates, long viewNumber) {
 
-        long previousView = viewNumber - 1;
-
         for (MessageServiceOuterClass.PreparedCertificate preparedCertificate : preparedCertificates) {
 
             if (!preparedCertificate.hasPrePrepareMessage() || !preparedCertificate.hasPrepareMessage()) {
-                logger.warn("PrePrepare message or Prepare message in PreparedCertificate for view {} is missing", previousView);
+                logger.warn("PrePrepare message or Prepare message in PreparedCertificate is missing");
                 return false;
             }
 
@@ -90,8 +88,8 @@ public class ViewChangeHandler {
             }
 
             if (prepareMessage.getViewNumber() != prePrepareMessage.getViewNumber() || prepareMessage.getSequenceNumber() != seqNum) {
-                logger.warn("PreparedCertificate Prepare message view number {} or sequence number {} does not match expected view number {} and sequence number {}",
-                        prepareMessage.getViewNumber(), prepareMessage.getSequenceNumber(), previousView, seqNum);
+                logger.warn("PreparedCertificate Prepare message view number {} or sequence number {} does not match expected sequence number {}",
+                        prepareMessage.getViewNumber(), prepareMessage.getSequenceNumber(), seqNum);
                 return false;
             }
         }
