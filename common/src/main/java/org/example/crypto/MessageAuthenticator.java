@@ -69,7 +69,12 @@ public class MessageAuthenticator {
     }
 
     public boolean verify(Message message) {
-        return verifyWithTss(message);
+        try {
+            return verifyWithTss(message);
+        } catch (IllegalStateException e) {
+            logger.error("Verification failed due to missing fields: {}", e.getMessage());
+            return false;
+        }
     }
 
     public Message signWithTSS(Message message) {

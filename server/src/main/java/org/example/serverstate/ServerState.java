@@ -37,6 +37,8 @@ public final class ServerState {
     private String collectorServerId;
     private boolean isFaulty;
     private boolean viewChangeInProgress;
+    private long newViewBroadcastView = -1L;
+    private boolean newViewBroadcastStarted = false;
     private long seqNum;
     private final long checkPointInterval = Config.getCheckpointInterval();
     private long latestStableCheckpointSeqNum = 0L;
@@ -48,11 +50,6 @@ public final class ServerState {
 
     // Liveness timer
     private LivenessTimer livenessTimer;
-
-    // Reply tracking and caches
-    // private final ConcurrentHashMap<String, Long> replyTimestamps = new ConcurrentHashMap<>();
-    // private final ConcurrentHashMap<String, MessageServiceOuterClass.ClientReply> replyCache = new ConcurrentHashMap<>();
-    // Reply tracking moved into StateMachineOperator; keep ServerState wrappers that delegate to it
 
     // Checkpoints and message history
     private final ConcurrentHashMap<Long, MessageServiceOuterClass.CheckpointMessage> stableCheckpoints = new ConcurrentHashMap<>();
@@ -85,7 +82,7 @@ public final class ServerState {
             this.isFaulty = isFaulty;
             this.viewChangeInProgress = false;
             this.seqNum = 0L;
-            this.stateMachineOperator = new StateMachineOperator(this, operationLog, replySender, checkpointSender);
+            this.stateMachineOperator = new StateMachineOperator(this, operationLog, livenessTimer, replySender, checkpointSender);
             this.livenessTimer = livenessTimer;
             return null;
         });
@@ -326,14 +323,33 @@ public final class ServerState {
     }
 
     public boolean isViewChangeInProgress() {
-        return viewChangeInProgress;
+        return runSync(() -> viewChangeInProgress);
     }
 
     public void setViewChangeInProgress(boolean viewChangeInProgress) {
-        logger.info("Setting viewChangeInProgress to {}", viewChangeInProgress);
-        this.viewChangeInProgress = viewChangeInProgress;
-        logger.info("Removing view change minimum quorum messages from consensus tracker");
-        serverMessageTracker.removeFromConsensusTrackerByIndex(ServerMessage.VIEW_CHANGE);
+        runSync(() -> {
+            logger.info("Setting viewChangeInProgress to {}", viewChangeInProgress);
+            this.viewChangeInProgress = viewChangeInProgress;
+            logger.info("Removing view change minimum quorum messages from consensus tracker");
+            serverMessageTracker.removeFromConsensusTrackerByIndex(ServerMessage.VIEW_CHANGE);
+        });
+    }
+
+    public boolean tryStartNewViewBroadcast(long view) {
+        return runSync(() -> {
+            if (newViewBroadcastStarted && newViewBroadcastView == view) return false;
+            newViewBroadcastStarted = true;
+            newViewBroadcastView = view;
+            return true;
+        });
+    }
+
+    public void completeNewViewBroadcast(long view) {
+        runSync(() -> {
+            if (newViewBroadcastView == view) {
+                newViewBroadcastStarted = false;
+            }
+        });
     }
 
     public void ensureInView(long viewNumber) {
@@ -401,28 +417,7 @@ public final class ServerState {
         }
 
         logger.info("Attempting to execute operation of type: {}", request.getOperation().getOpCase());
-        return stateMachineOperator.executeOperation(request, seqNum)
-                .thenApply(reply -> {
-                    // After operation completes, update timer based on pending operations
-                    runSync(() -> {
-
-                        if (livenessTimer == null) {
-                            logger.warn("Liveness timer is null, cannot update after operation");
-                            return;
-                        }
-
-                        boolean hasPending = stateMachineOperator.areOperationsPending();
-                        logger.info("Operation completed for seqNum {}. Pending operations: {}", seqNum, hasPending);
-                        if (hasPending) {
-                            logger.info("Restarting liveness timer - operations still pending");
-                            livenessTimer.restart();
-                        } else {
-                            logger.info("Stopping liveness timer - no pending operations");
-                            livenessTimer.stop();
-                        }
-                    });
-                    return reply;
-                });
+        return stateMachineOperator.executeOperation(request, seqNum);
     }
 
     public CompletableFuture<MessageServiceOuterClass.ClientReply> executeReadOnlyRequest(MessageServiceOuterClass.ClientRequest request) {

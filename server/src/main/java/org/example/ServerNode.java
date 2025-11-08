@@ -105,8 +105,8 @@ public class ServerNode extends Node {
 
         if (state.getLastExecutedView() < state.getViewNumber()) {
             logger.info("Extending liveness timeout for view {}", state.getViewNumber() + 1);
-            livenessTimer.addToTimeoutMillis(Config.getViewChangeTimeoutMillis());
-        } else livenessTimer.setTimeoutMillis(Config.getViewChangeTimeoutMillis());
+            livenessTimer.addToTimeoutMillis(Config.getServerTimeoutMillis());
+        } else livenessTimer.setTimeoutMillis(Config.getServerTimeoutMillis());
 
         state.setViewChangeInProgress(true);
         viewChangeSender.broadcastViewChange(state);

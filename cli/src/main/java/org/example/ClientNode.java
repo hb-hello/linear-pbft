@@ -176,6 +176,13 @@ public class ClientNode extends Node {
                 pauseLock.unlock();
             }
              boolean success = broadcastOrSendClientRequestWithTimeout(clientRequest);
+
+             // If the thread was interrupted (e.g., executor.shutdownNow), stop retrying and abort
+             if (Thread.currentThread().isInterrupted()) {
+                 logger.info("Client {} operation interrupted; aborting further retries for request {}", this.nodeId, requestId);
+                 return;
+             }
+
              if (success) {
                  break;
              }

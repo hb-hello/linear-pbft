@@ -4,6 +4,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.example.MessageServiceOuterClass;
 import org.example.config.Config;
+import org.example.consensus.LivenessTimer;
 import org.example.statemachine.BankStateMachine;
 import org.example.messaging.MessageUtil;
 
@@ -30,16 +31,19 @@ public class StateMachineOperator {
     private final BiConsumer<MessageServiceOuterClass.ClientRequest, MessageServiceOuterClass.ClientReply> replySender;
     private final BiConsumer<ServerState, Long> checkpointSender;
 
+    private final LivenessTimer livenessTimer;
+
     // Reply tracking moved here from ServerState
     private final ConcurrentHashMap<String, Long> replyTimestamps = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, MessageServiceOuterClass.ClientReply> replyCache = new ConcurrentHashMap<>();
 
     // all methods should be called from within state's runSync
-    public StateMachineOperator(ServerState state, OperationLog operationLog,
+    public StateMachineOperator(ServerState state, OperationLog operationLog, LivenessTimer livenessTimer,
                                 BiConsumer<MessageServiceOuterClass.ClientRequest, MessageServiceOuterClass.ClientReply> replySender,
                                 BiConsumer<ServerState, Long> checkpointSender) {
         this.state = state;
         this.operationLog = operationLog;
+        this.livenessTimer = livenessTimer;
         this.replySender = replySender;
         this.checkpointSender = checkpointSender;
         this.stateMachine = new BankStateMachine(new HashMap<>(Config.getClientBalances()));
@@ -65,6 +69,8 @@ public class StateMachineOperator {
 
         pendingOperations.remove(seqNum);
         lastExecutedSeqNum = seqNum;
+
+        updateTimer();
 
         if (operationLog != null) {
             operationLog.updateStatus(seqNum, OperationStatus.EXECUTED);
@@ -188,6 +194,23 @@ public class StateMachineOperator {
             replySender.accept(nextRequest, reply);
         }
         logger.info("Finished executing pending operations up to seqNum {}", lastExecutedSeqNum);
+    }
+
+    public void updateTimer() {
+        if (livenessTimer == null) {
+            logger.warn("Liveness timer is null, cannot update after operation");
+            return;
+        }
+
+        boolean hasPending = areOperationsPending();
+        logger.info("Pending operations present? : {}", hasPending);
+        if (hasPending) {
+            logger.info("Restarting liveness timer - operations still pending");
+            livenessTimer.restart();
+        } else {
+            logger.info("Stopping liveness timer - no pending operations");
+            livenessTimer.stop();
+        }
     }
 
     public boolean areOperationsPending() {

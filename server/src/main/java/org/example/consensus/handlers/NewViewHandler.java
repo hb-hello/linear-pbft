@@ -34,13 +34,13 @@ public class NewViewHandler {
      * and that their signatures are valid.
      */
     private boolean verifyCheckpointMessages(List<MessageServiceOuterClass.CheckpointMessage> checkpointMessages,
-                                            long expectedViewNumber, long expectedSeqNum) {
+                                             long expectedSeqNum) {
         for (MessageServiceOuterClass.CheckpointMessage checkpointMessage : checkpointMessages) {
-            if (checkpointMessage.getViewNumber() != expectedViewNumber) {
-                logger.warn("Checkpoint message view number {} does not match expected view number {}",
-                        checkpointMessage.getViewNumber(), expectedViewNumber);
-                return false;
-            }
+//            if (checkpointMessage.getViewNumber() != expectedViewNumber) {
+//                logger.warn("Checkpoint message view number {} does not match expected view number {}",
+//                        checkpointMessage.getViewNumber(), expectedViewNumber);
+//                return false;
+//            }
 
             if (checkpointMessage.getSequenceNumber() != expectedSeqNum) {
                 logger.warn("Checkpoint message sequence number {} does not match expected sequence number {}",
@@ -116,11 +116,10 @@ public class NewViewHandler {
         }
 
         long lastStableSeqNum = viewChangeMessage.getLastStableSequenceNumber();
-        long previousView = newViewNumber - 1;
 
         // Verify checkpoint messages
         if (!verifyCheckpointMessages(viewChangeMessage.getCheckpointMessagesList(),
-                                     previousView, lastStableSeqNum)) {
+                                     lastStableSeqNum)) {
             logger.warn("Invalid checkpoint messages in ViewChangeMessage for view {}", newViewNumber);
             return false;
         }
@@ -139,6 +138,7 @@ public class NewViewHandler {
      */
     private long calculateMinSequenceNumber(List<MessageServiceOuterClass.ViewChangeMessage> viewChangeMessages) {
         long minSeqNum = Long.MAX_VALUE;
+        logger.info("Calculating minimum sequence number from view change messages");
         for (MessageServiceOuterClass.ViewChangeMessage vcMsg : viewChangeMessages) {
             if (vcMsg.getLastStableSequenceNumber() < minSeqNum) {
                 minSeqNum = vcMsg.getLastStableSequenceNumber();
@@ -152,6 +152,7 @@ public class NewViewHandler {
      */
     private long calculateMaxSequenceNumber(List<MessageServiceOuterClass.ViewChangeMessage> viewChangeMessages) {
         long maxSeqNum = Long.MIN_VALUE;
+        logger.info("Calculating maximum sequence number from prepared certificates in view change messages");
         for (MessageServiceOuterClass.ViewChangeMessage vcMsg : viewChangeMessages) {
             for (MessageServiceOuterClass.PreparedCertificate pc : vcMsg.getPreparedCertificatesList()) {
                 MessageServiceOuterClass.PrePrepareMessage prePrepareMessage = pc.getPrePrepareMessage();
@@ -168,7 +169,7 @@ public class NewViewHandler {
      */
     private Map<Long, ByteString> getPendingRequests(List<MessageServiceOuterClass.ViewChangeMessage> viewChangeMessages) {
         Map<Long, ByteString> pendingRequests = new HashMap<>();
-
+        logger.info("Extracting pending requests from view change messages for view{}", viewChangeMessages.get(0).getViewNumber());
         for (MessageServiceOuterClass.ViewChangeMessage vcMsg : viewChangeMessages) {
             for (MessageServiceOuterClass.PreparedCertificate pc : vcMsg.getPreparedCertificatesList()) {
                 long seqNum = pc.getPrePrepareMessage().getSequenceNumber();
@@ -196,12 +197,16 @@ public class NewViewHandler {
             long seqNum = prePrepare.getSequenceNumber();
             seqNumsInPrePrepares.add(seqNum);
 
+            logger.info("Verifying PrePrepare message for view {} seq {}",
+                    prePrepare.getViewNumber(), seqNum);
             if(!auth.verify(prePrepare)) {
                 logger.warn("Invalid signature for PrePrepare message in view {} seq {}",
                         prePrepare.getViewNumber(), seqNum);
                 return false;
             }
 
+            logger.info("Verifying view number for PrePrepare message seq {}: expected {}, got {}",
+                    seqNum, newViewNumber, prePrepare.getViewNumber());
             // Verify view number
             if (prePrepare.getViewNumber() != newViewNumber) {
                 logger.warn("PrePrepare message has view number {} but expected {}",
@@ -209,13 +214,16 @@ public class NewViewHandler {
                 return false;
             }
 
+            logger.info("Verifying sequence number for PrePrepare message: expected range [{}, {}], got {}",
+                    Math.max(minSeqNum, 1L), maxSeqNum, seqNum);
             // Verify sequence number is in valid range
-            if (seqNum < minSeqNum || seqNum > maxSeqNum) {
+            if (seqNum < Math.max(minSeqNum, 1L) || seqNum > maxSeqNum) {
                 logger.warn("PrePrepare message has sequence number {} outside expected range [{}, {}]",
                         seqNum, minSeqNum, maxSeqNum);
                 return false;
             }
 
+            logger.info("Verifying digest for PrePrepare message seq {} against pending requests", seqNum);
             // Verify digest matches pending request or is null digest
             ByteString expectedDigest = pendingRequests.get(seqNum);
             if (expectedDigest == null) {
@@ -233,8 +241,10 @@ public class NewViewHandler {
             }
         }
 
+        logger.info("Verifying coverage of PrePrepare messages for sequence numbers in range [{}, {}]",
+                Math.max(minSeqNum, 1L), maxSeqNum);
         // Verify all sequence numbers in range are covered
-        for (long seqNum = minSeqNum; seqNum <= maxSeqNum; seqNum++) {
+        for (long seqNum = Math.max(minSeqNum, 1L); seqNum <= maxSeqNum; seqNum++) {
             if (!seqNumsInPrePrepares.contains(seqNum)) {
                 logger.warn("PrePrepare messages missing sequence number {} in range [{}, {}]",
                         seqNum, minSeqNum, maxSeqNum);
@@ -286,7 +296,8 @@ public class NewViewHandler {
         }
 
         Map<Long, ByteString> pendingRequests = getPendingRequests(viewChangeMessages);
-
+        logger.info("NewViewMessage for view {} has pending requests for seq nums {} to {} in view change messages, verifying against pre-prepares now",
+                newViewNumber, Math.max(minSeqNum, 1L), maxSeqNum);
         // Verify pre-prepare messages match the view change messages
         if (!verifyPrePrepareMessages(newView.getPrePrepareMessagesList(),
                                      pendingRequests,

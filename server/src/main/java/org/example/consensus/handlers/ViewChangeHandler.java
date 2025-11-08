@@ -36,12 +36,12 @@ public class ViewChangeHandler {
 
     private boolean isValid(List<MessageServiceOuterClass.CheckpointMessage> checkpointMessages, long viewNumber, long lastStableSeqNum) {
         for (MessageServiceOuterClass.CheckpointMessage checkpointMessage : checkpointMessages) {
-            if (checkpointMessage.getViewNumber() != viewNumber - 1) {
-                logger.warn("Checkpoint message view number {} does not match expected view number {}",
-                        checkpointMessage.getViewNumber(), viewNumber - 1);
-                return false;
-            }
-
+//            if (checkpointMessage.getViewNumber() != viewNumber - 1) {
+//                logger.warn("Checkpoint message view number {} does not match expected view number {}",
+//                        checkpointMessage.getViewNumber(), viewNumber - 1);
+//                return false;
+//            }
+//
             if (checkpointMessage.getSequenceNumber() != lastStableSeqNum) {
                 logger.warn("Checkpoint message sequence number {} is less than last stable sequence number {}",
                         checkpointMessage.getSequenceNumber(), lastStableSeqNum);
@@ -145,10 +145,21 @@ public class ViewChangeHandler {
             return;
         }
 
-        newViewSender.broadcastNewView(state);
-
         logger.info("ViewChangeMessage for view {} has reached full quorum, starting view change timer",
                 viewNumber);
-        if (!state.isPrimary()) viewChangeTimer.startIfNotRunning();
+        viewChangeTimer.startIfNotRunning();
+
+        if (!state.isViewChangeInProgress()) {
+            logger.info("View change is not in progress for view {}, no need to broadcast NewView message", viewNumber);
+            return;
+        }
+
+        if (!state.tryStartNewViewBroadcast(viewNumber)) {
+            logger.info("NewView broadcast already started for view {}", viewNumber);
+            return;
+        }
+
+        newViewSender.broadcastNewView(state);
+
     }
 }

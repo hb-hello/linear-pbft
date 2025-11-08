@@ -31,7 +31,7 @@ class StateMachineOperatorTest {
     @BeforeEach
     void setupOperator() {
         state = MockState.create("n1");
-        operator = new StateMachineOperator(state, null, (request, reply) -> { }, (s, seqNum) -> { });
+        operator = new StateMachineOperator(state, null, null, (request, reply) -> { }, (s, seqNum) -> { });
     }
 
     private MessageServiceOuterClass.ClientRequest createTransferRequest(String clientId, long timestamp,

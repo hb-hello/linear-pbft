@@ -83,10 +83,10 @@ public class NewViewSender extends MessageSender {
                         .setSequenceNumber(i)
                         .setDigest(nullDigest)
                         .build();
-                prePrepareMessages.add(nullPrePrepare);
                 MessageServiceOuterClass.PrePrepareMessage signedNullPrePrepare = (MessageServiceOuterClass.PrePrepareMessage) auth.sign(nullPrePrepare);
 
                 state.appendServerMessage(signedNullPrePrepare, quorumSize);
+                prePrepareMessages.add(signedNullPrePrepare);
                 continue;
             }
             MessageServiceOuterClass.PrePrepareMessage prePrepare = MessageServiceOuterClass.PrePrepareMessage.newBuilder()
@@ -97,9 +97,7 @@ public class NewViewSender extends MessageSender {
 
             MessageServiceOuterClass.PrePrepareMessage signedMsg = (MessageServiceOuterClass.PrePrepareMessage) auth.sign(prePrepare);
 
-            state.appendServerMessage(signedMsg, quorumSize);
-            prePrepareMessages.add(signedMsg);
-
+            // find the client request to attach to this pre-prepare in the new view
             MessageServiceOuterClass.ClientRequest clientRequest = state.findClientRequest(pendingRequests.get(i));
             if (clientRequest == null) {
                 logger.info("Client request for view {} seq {} not found in state", newViewNumber, i);
@@ -108,7 +106,14 @@ public class NewViewSender extends MessageSender {
                         .build();
                 logger.info("Requesting client request for view {} seq {} from other servers to append to state", newViewNumber, i);
                 broadcast(seqNum, (stub, msg) -> stub.getClientRequest((MessageServiceOuterClass.SequenceNumber) msg));
+                // state will be updated and whenever client request is received, it will be added to this sequence number
+                state.appendServerMessage(signedMsg, quorumSize);
+            } else {
+                logger.info("Client request for view {} seq {} found in state, no need to request", newViewNumber, i);
+                state.appendServerMessage(signedMsg, clientRequest, quorumSize);
             }
+
+            prePrepareMessages.add(signedMsg);
         }
         return prePrepareMessages;
     }
@@ -130,9 +135,6 @@ public class NewViewSender extends MessageSender {
         if (ownViewChange != null && !viewChangeMessages.contains(ownViewChange)) {
             viewChangeMessages.add(ownViewChange);
         }
-
-        // mark view change as completed
-        state.setViewChangeInProgress(false);
 
         long minSeqNum = calculateMinSequenceNumber(viewChangeMessages);
         long maxSeqNum = calculateMaxSequenceNumber(viewChangeMessages);
@@ -186,5 +188,9 @@ public class NewViewSender extends MessageSender {
 
         broadcast(signedNewView, (stub, signed) -> stub.newView((MessageServiceOuterClass.NewViewMessage) signed));
         logger.info("Broadcasted NewView message for view {}", viewNumber);
+
+        // mark view change as completed
+        state.setViewChangeInProgress(false);
+        state.completeNewViewBroadcast(viewNumber);
     }
 }
