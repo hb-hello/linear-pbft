@@ -60,16 +60,22 @@ public final class SignerVerifierTSS {
 
     // Prepare: verify a partial signature from signerId using its share pubkey (from manifest)
     public boolean verifyPartial(Message msg, byte[] partialSig, String signerId) {
-        P1_Affine pkShareAffine = km.getPublicKeyShare(signerId);
-        if(!pkShareAffine.in_group()) return false;
-        byte[] bytes = clearForSigning(msg).toByteArray();
-        P2_Affine partialSigAffine = new P2_Affine(partialSig);
-        if(!partialSigAffine.in_group()) return false;
+        try {
+            P1_Affine pkShareAffine = km.getPublicKeyShare(signerId);
+            if(!pkShareAffine.in_group()) return false;
+            byte[] bytes = clearForSigning(msg).toByteArray();
+            P2_Affine partialSigAffine = new P2_Affine(partialSig);
+            if(!partialSigAffine.in_group()) return false;
 
-        Pairing ctx = new Pairing(true, dst);
-        ctx.aggregate(pkShareAffine, partialSigAffine, bytes);
-        ctx.commit();
-        return ctx.finalverify();
+            Pairing ctx = new Pairing(true, dst);
+            ctx.aggregate(pkShareAffine, partialSigAffine, bytes);
+            ctx.commit();
+            return ctx.finalverify();
+        } catch (Exception e) {
+            logger.error("SignerVerifierTSS.verifyPartial: exception verifying partial from {}: {}",
+                    signerId, e.getMessage());
+            return false;
+        }
     }
 
     // Commit (collector): combine partials from indices -> partialSig to a single G2 aggregated signature

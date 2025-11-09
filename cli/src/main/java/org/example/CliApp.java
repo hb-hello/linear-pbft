@@ -47,8 +47,17 @@ public final class CliApp {
                     }
                     case "3" -> {
                         System.out.print("Enter sequence number: ");
-                        int seq = Integer.parseInt(sc.nextLine().trim());
-                        printStatus(seq);
+                        String in = sc.nextLine().trim();
+                        try {
+                            int seq = Integer.parseInt(in);
+                            if (seq < 0) {
+                                System.out.println("Invalid sequence number. Must be >= 0.");
+                            } else {
+                                printStatus(seq);
+                            }
+                        } catch (NumberFormatException e) {
+                            System.out.println("Invalid number format.");
+                        }
                     }
                     case "4" -> printView();
                     case "5" -> {
@@ -71,7 +80,13 @@ public final class CliApp {
                     case "6" -> {
                         System.out.print("Enter server id: ");
                         String serverId = sc.nextLine().trim();
-                        printOperationLog(serverId);
+                        if (serverId.isEmpty()) {
+                            System.out.println("Server id cannot be empty.");
+                        } else if (!Config.getServerIds().contains(serverId)) {
+                            System.out.println("Invalid server id. Valid ids: " + Config.getServerIds());
+                        } else {
+                            printOperationLog(serverId);
+                        }
                     }
                     case "7" -> {
                         // Toggle: if any client is paused then resume all, otherwise pause all
@@ -103,6 +118,12 @@ public final class CliApp {
                                 next = chosen - 1;
                                 System.out.println("Next set number set to #" + chosen + ".");
                                 // Immediately start the chosen set
+                                // Cancel previous dispatch and reset for new set
+                                if (next > 0) {
+                                    System.out.println("Cancelling previous dispatch...");
+                                    dispatcher.reset();
+                                    System.out.println("Previous dispatch cancelled and reset.");
+                                }
                                 startSet(next, sets, dispatcher);
                                 next++;
                             }

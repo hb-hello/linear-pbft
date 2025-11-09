@@ -24,7 +24,6 @@ public class MockCommitSender extends CommitSender {
         super(nodeId, quorumSize, null, state, commLogger, auth != null ? auth : new MessageAuthenticator(nodeId), null);
     }
 
-    @Override
     protected void send(String targetNodeId, com.google.protobuf.Message signedMessage,
                         java.util.function.BiConsumer<org.example.MessageServiceGrpc.MessageServiceFutureStub, com.google.protobuf.Message> method) {
         // Capture the signed commit message for test verification

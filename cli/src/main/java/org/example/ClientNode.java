@@ -13,6 +13,7 @@ import org.example.statemachine.TransferOp;
 
 import java.time.Duration;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -31,6 +32,9 @@ public class ClientNode extends Node {
     private final ReentrantLock pauseLock = new ReentrantLock();
     private final Condition unpaused = pauseLock.newCondition();
     private volatile boolean paused = false;
+
+    // Generation token to cancel in-flight operations on reset
+    private final AtomicLong runGeneration = new AtomicLong(0);
 
     public ClientNode(String nodeId) {
         super(nodeId);
@@ -98,28 +102,73 @@ public class ClientNode extends Node {
                 .build();
     }
 
-    // Send request(s) and await consensus; returns true if consensus reached, false on timeout.
-    private boolean broadcastOrSendClientRequestWithTimeout(MessageServiceOuterClass.ClientRequest clientRequest) {
+    // Send request(s) and await consensus; returns true if consensus reached, false on timeout or if cancelled.
+    private boolean broadcastOrSendClientRequestWithTimeout(MessageServiceOuterClass.ClientRequest clientRequest, long opGen) {
         String clientId = clientRequest.getClientId();
         long timestamp = clientRequest.getTimestamp();
         String requestId = requestIdFor(clientId, timestamp);
+
+        // If the generation changed since this operation started, abort without sending
+        if (opGen != runGeneration.get()) {
+            logger.info("Aborting send for request {} because client generation changed (opGen={} current={})", requestId, opGen, runGeneration.get());
+            return false;
+        }
 
         if (primaryServerId == null) {
             // No known primary: broadcast to all servers concurrently
             logger.info("No primary known. Broadcasting request {} to all servers", requestId);
             MessageServiceOuterClass.ClientRequest clientRequestConsensus = clientRequest.toBuilder().setIsReadOnly(false).build();
             for (String serverId : Config.getServerIds()) {
-                this.sender.sendRequest(serverId, clientRequestConsensus);
+                // Check generation before each send to avoid sending after reset
+                if (opGen != runGeneration.get()) {
+                    logger.info("Stopped broadcasting {} because generation changed", requestId);
+                    return false;
+                }
+                try {
+                    this.sender.sendRequest(serverId, clientRequestConsensus);
+                } catch (IllegalStateException ise) {
+                    logger.info("Send aborted for {} because sender inactive: {}", requestId, ise.getMessage());
+                    return false;
+                } catch (RuntimeException re) {
+                    logger.warn("Unexpected exception while sending {} to {}: {}", requestId, serverId, re.getMessage());
+                    return false;
+                }
             }
         } else {
             // multicast to all servers for read-only requests
             if (clientRequest.getIsReadOnly()) {
                 for (String serverId : Config.getServerIds()) {
-                    this.sender.sendRequest(serverId, clientRequest);
+                    if (opGen != runGeneration.get()) {
+                        logger.info("Stopped multicast {} because generation changed", requestId);
+                        return false;
+                    }
+                    try {
+                        this.sender.sendRequest(serverId, clientRequest);
+                    } catch (IllegalStateException ise) {
+                        logger.info("Send aborted for {} because sender inactive: {}", requestId, ise.getMessage());
+                        return false;
+                    } catch (RuntimeException re) {
+                        logger.warn("Unexpected exception while sending {} to {}: {}", requestId, serverId, re.getMessage());
+                        return false;
+                    }
                 }
                 logger.info("Sent read-only client request to all servers for request id {}", requestId);
             // Send to known primary
-            } else this.sender.sendRequest(primaryServerId, clientRequest);
+            } else {
+                if (opGen != runGeneration.get()) {
+                    logger.info("Stopped send to primary for {} because generation changed", requestId);
+                    return false;
+                }
+                try {
+                    this.sender.sendRequest(primaryServerId, clientRequest);
+                } catch (IllegalStateException ise) {
+                    logger.info("Send aborted for {} because sender inactive: {}", requestId, ise.getMessage());
+                    return false;
+                } catch (RuntimeException re) {
+                    logger.warn("Unexpected exception while sending {} to primary {}: {}", requestId, primaryServerId, re.getMessage());
+                    return false;
+                }
+            }
             logger.info("Sent client request to primary {} for id {}", primaryServerId, requestId);
         }
 
@@ -135,6 +184,10 @@ public class ClientNode extends Node {
         } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();
             logger.warn("Interrupted while waiting for consensus for id {}", requestId, ie);
+            return false;
+        } catch (RuntimeException re) {
+            // This may be caused by the consensus future being completed exceptionally (e.g., cancellation)
+            logger.info("Aborting request {} because awaitConsensus failed or was cancelled: {}", requestId, re.getMessage());
             return false;
         }
     }
@@ -154,9 +207,18 @@ public class ClientNode extends Node {
                 operation.getClass().getSimpleName(), clientRequest.getClientId(),
                 clientRequest.getTimestamp(), requestId);
 
+        // Capture generation for this operation so we can abort if a reset occurs
+        final long opGen = runGeneration.get();
+
         // Consensus tracker will be implicitly created when first reply arrives
         // Keep retrying forever until consensus is reached
         while (true) {
+            // If generation changed, abort this operation so no further sends occur
+            if (opGen != runGeneration.get()) {
+                logger.info("Aborting processing of request {} because client generation changed (opGen={} current={})", requestId, opGen, runGeneration.get());
+                return;
+            }
+
             // If paused, wait here between retry attempts so operator can inspect server state
             pauseLock.lock();
             try {
@@ -166,29 +228,46 @@ public class ClientNode extends Node {
                         try {
                             unpaused.await();
                         } catch (InterruptedException ie) {
+                            // Respect interrupt but avoid tight retry loops: set interrupt flag and break out to check
                             Thread.currentThread().interrupt();
                             logger.warn("Interrupted while paused: {}", ie.getMessage());
-                            return; // abort processing this operation
+                            break;
                         }
                     }
                 }
             } finally {
                 pauseLock.unlock();
             }
-             boolean success = broadcastOrSendClientRequestWithTimeout(clientRequest);
 
-             // If the thread was interrupted (e.g., executor.shutdownNow), stop retrying and abort
-             if (Thread.currentThread().isInterrupted()) {
-                 logger.info("Client {} operation interrupted; aborting further retries for request {}", this.nodeId, requestId);
-                 return;
-             }
+            boolean success = broadcastOrSendClientRequestWithTimeout(clientRequest, opGen);
 
-             if (success) {
-                 break;
-             }
-             // On timeout, forget primary to trigger broadcast on the next attempt
-             primaryServerId = null;
-             logger.info("Retrying request after timeout for client {} at ts {} (requestId={})", clientRequest.getClientId(), clientRequest.getTimestamp(), requestId);
+            // If the thread was interrupted (e.g., executor.shutdownNow), stop retrying and abort
+            if (Thread.currentThread().isInterrupted()) {
+                logger.info("Client {} operation interrupted; aborting further retries for request {}", this.nodeId, requestId);
+                return;
+            }
+
+            // If generation changed during send/wait, abort rather than retry
+            if (opGen != runGeneration.get()) {
+                logger.info("Aborting processing of request {} after send/wait because generation changed", requestId);
+                return;
+            }
+
+            if (success) {
+                break;
+            }
+            // On timeout, forget primary to trigger broadcast on the next attempt
+            primaryServerId = null;
+            logger.info("Retrying request after timeout for client {} at ts {} (requestId={})", clientRequest.getClientId(), clientRequest.getTimestamp(), requestId);
+
+            // Small backoff to avoid tight retry loops that can spin when interrupted or cancelled
+            try {
+                Thread.sleep(50);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                logger.info("Client {} interrupted during backoff; aborting retries for request {}", this.nodeId, requestId);
+                return;
+            }
          }
     }
 
@@ -245,8 +324,28 @@ public class ClientNode extends Node {
     }
 
     public void reset() {
+        // Deactivate sender so any previously-scheduled network tasks abort when they run
+        try {
+            this.sender.setActive(false);
+        } catch (Exception e) {
+            logger.warn("Failed to deactivate sender during reset: {}", e.getMessage());
+        }
+
+        // Bump the run generation so any currently-processing operations will stop
+        runGeneration.incrementAndGet();
+        // Cancel and clear any waiting consensus buckets
         this.messageTracker.clear();
         updatePrimary(1L); // Initial view
+
+        // Allow a short grace period for already-scheduled network tasks to run and observe the inactive flag
+        try {
+            Thread.sleep(100);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+        }
+
+        // Reactivate sender for the new run
+        this.sender.setActive(true);
     }
 
     public void start() {

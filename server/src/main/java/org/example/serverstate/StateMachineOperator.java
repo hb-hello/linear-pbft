@@ -1,9 +1,11 @@
 package org.example.serverstate;
 
+import com.google.protobuf.ByteString;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.example.MessageServiceOuterClass;
 import org.example.config.Config;
+import org.example.messaging.ServerMessage;
 import org.example.consensus.LivenessTimer;
 import org.example.statemachine.BankStateMachine;
 import org.example.messaging.MessageUtil;
@@ -65,7 +67,8 @@ public class StateMachineOperator {
         MessageServiceOuterClass.Operation operation = request.getOperation();
         logger.info("Executing operation of type: {} at seq {}", operation.getOpCase(), seqNum);
 
-        MessageServiceOuterClass.OperationResult result = stateMachine.execute(operation);
+        MessageServiceOuterClass.OperationResult result = null;
+        if (!request.getClientId().equals("no-op")) result = stateMachine.execute(operation);
 
         pendingOperations.remove(seqNum);
         lastExecutedSeqNum = seqNum;
@@ -79,62 +82,107 @@ public class StateMachineOperator {
         // Send checkpoint if at checkpoint interval
         checkpointSender.accept(state, seqNum);
 
-        return MessageServiceOuterClass.ClientReply.newBuilder()
-                .setViewNumber(state.getViewNumber())
-                .setTimestamp(request.getTimestamp())
-                .setClientId(request.getClientId())
-                .setServerId(state.getServerId())
-                .setResult(result)
-                .build();
+        if (result != null) {
+            return MessageServiceOuterClass.ClientReply.newBuilder()
+                    .setViewNumber(state.getViewNumber())
+                    .setTimestamp(request.getTimestamp())
+                    .setClientId(request.getClientId())
+                    .setServerId(state.getServerId())
+                    .setResult(result)
+                    .build();
+        }
+        return null;
     }
 
     // State-machine operations — example transfer and read-only balance
 
     // Generic execute that delegates to the pluggable state machine
-    public CompletableFuture<MessageServiceOuterClass.ClientReply> executeOperation(MessageServiceOuterClass.ClientRequest request, long seqNum) {
-        // Execute operation in the dedicated state machine executor
-        // All checks must happen inside the executor to avoid race conditions
-        return CompletableFuture.supplyAsync(() -> {
 
-            String clientId = request.getClientId();
-            // Use internal replyTimestamps instead of querying ServerState
-            Long lastTimestamp = replyTimestamps.get(clientId);
-            if (lastTimestamp != null && lastTimestamp >= request.getTimestamp()) {
-                logger.warn("Stale request from client {} with timestamp {}. Last reply timestamp is {}", clientId, request.getTimestamp(), lastTimestamp);
+    /**
+     * New variant that accepts a precomputed digest. This lets the operator detect
+     * and instantiate a no-op (null-request) based on the digest (DRY: single place for null-request handling).
+     */
+    public CompletableFuture<MessageServiceOuterClass.ClientReply> executeOperation(MessageServiceOuterClass.ClientRequest request, ByteString digest, long seqNum) {
+        // Delegate to the executor-aware implementation which centralizes null-request handling
+        return executeOperationWithEffectiveRequest(request, digest, seqNum);
+    }
+
+    // Backwards-compatible overload that preserves previous API (digest unknown)
+    public CompletableFuture<MessageServiceOuterClass.ClientReply> executeOperation(MessageServiceOuterClass.ClientRequest request, long seqNum) {
+        return executeOperation(request, null, seqNum);
+    }
+
+    // NOTE: To keep null-request handling centralized we intercept null/empty requests here
+    // and construct a no-op if the digest indicates a null operation. This logic must run
+    // inside the state machine executor before any execution/pending logic to avoid races.
+    private MessageServiceOuterClass.ClientRequest handleNullRequestIfNeeded(MessageServiceOuterClass.ClientRequest request, ByteString digest, long seqNum) {
+        if (request == null || !request.hasOperation()) {
+            logger.info("Encountered null request for seqNum {}, checking the digest to verify if no-op", seqNum);
+            ByteString nullDigest = ByteString.copyFrom(new byte[32]);
+            if (nullDigest.equals(digest)) {
+                logger.info("Digest matches null digest, executing no-op for seqNum {}", seqNum);
+
+                MessageServiceOuterClass.Operation noOp = MessageServiceOuterClass.Operation.newBuilder()
+                        .setBalanceRequest(MessageServiceOuterClass.BalanceRequest.newBuilder().setAccountId("A").build())
+                        .build();
+
+                request = MessageServiceOuterClass.ClientRequest.newBuilder().setClientId("no-op")
+                        .setTimestamp(System.currentTimeMillis())
+                        .setOperation(noOp)
+                        .setClientId("no-op")
+                        .setSignerId("no-op")
+                        .build();
+            }
+        }
+        return request;
+    }
+
+    // Internal implementation executed on stateMachineExecutor to centralize logic
+    private CompletableFuture<MessageServiceOuterClass.ClientReply> executeOperationWithEffectiveRequest(MessageServiceOuterClass.ClientRequest request, ByteString digest, long seqNum) {
+        return CompletableFuture.supplyAsync(() -> {
+            // First, ensure null-request logic runs in executor thread
+            MessageServiceOuterClass.ClientRequest effectiveRequest = handleNullRequestIfNeeded(request, digest, seqNum);
+            if (effectiveRequest == null || !effectiveRequest.hasOperation()) {
+                logger.info("Request not found or has no operation after null-digest check for seq {}", seqNum);
                 return null;
             }
 
-            // Add to pending operations if not already there
-            if(!pendingOperations.containsKey(seqNum)) {
-                pendingOperations.put(seqNum, request);
+            String clientId = effectiveRequest.getClientId();
+            Long lastTimestamp = replyTimestamps.get(clientId);
+            if (lastTimestamp != null && lastTimestamp >= effectiveRequest.getTimestamp()) {
+                logger.warn("Stale request from client {} with timestamp {}. Last reply timestamp is {}", clientId, effectiveRequest.getTimestamp(), lastTimestamp);
+                return null;
             }
 
-            // do not repeat execution
+            if (!pendingOperations.containsKey(seqNum)) {
+                pendingOperations.put(seqNum, effectiveRequest);
+            }
+
             if (seqNum <= lastExecutedSeqNum) {
                 logger.warn("Operation with seqNum {} has already been executed up to {}", seqNum, lastExecutedSeqNum);
                 return null;
             }
 
-            // do not execute out of order
             if (seqNum > lastExecutedSeqNum + 1) {
                 logger.info("Operation with seqNum {} is pending execution. Last executed seqNum is {}", seqNum, lastExecutedSeqNum);
                 return null;
             }
 
-            // Execute the operation using shared logic
-            MessageServiceOuterClass.ClientReply reply = executeAndBuildReply(request, seqNum);
+            MessageServiceOuterClass.ClientReply reply;
+            reply = executeAndBuildReply(effectiveRequest, seqNum);
 
-            // Update lastExecutedView after successful execution
             lastExecutedView = state.getViewNumber();
 
-            // Check for more pending operations
             if (!pendingOperations.isEmpty()) {
                 executePendingOperations();
             }
 
             logger.info("Executed operation with seqNum {}. Last executed seqNum is now {}, Now returning reply", seqNum, lastExecutedSeqNum);
 
-            rememberReply(reply);
+            if (reply != null) {
+                rememberReply(reply);
+                replySender.accept(effectiveRequest, reply);
+            }
 
             return reply;
         }, stateMachineExecutor);
@@ -176,9 +224,48 @@ public class StateMachineOperator {
             long nextSeqNum = lastExecutedSeqNum + 1;
             MessageServiceOuterClass.ClientRequest nextRequest = pendingOperations.get(nextSeqNum);
 
-            if (nextRequest == null) {
-                // No more consecutive pending operations
-                break;
+            // Defensive: if the pending request exists but carries no operation (placeholder),
+            // attempt to recover the real client request using the pre-prepare digest or instantiate
+            // a no-op when the digest equals the null digest. If we cannot resolve it yet, stop
+            // processing further pending operations.
+            if (nextRequest == null || !nextRequest.hasOperation()) {
+                logger.info("Pending request at seq {} has no operation; attempting to resolve via current-view pre-prepare digest", nextSeqNum);
+
+                // Fetch the PrePrepare for the current view at this sequence (direct method requested)
+                ServerMessage prePrepareMsg = state.findCurrentViewPrePrepare(nextSeqNum);
+                if (prePrepareMsg == null) {
+                    logger.info("No PrePrepare found for current view at seq {} yet; cannot execute pending", nextSeqNum);
+                    break;
+                }
+
+                if (!(prePrepareMsg.getMessage() instanceof MessageServiceOuterClass.PrePrepareMessage ppm)) {
+                    logger.warn("PrePrepare message for seq {} is not of expected type; cannot execute pending", nextSeqNum);
+                    break;
+                }
+
+                ByteString prePrepareDigest = ppm.getDigest();
+                if (prePrepareDigest == null) {
+                    logger.info("PrePrepare digest is null for seq {}; cannot execute pending", nextSeqNum);
+                    break;
+                }
+
+                // If digest equals the special null-digest, create the no-op request here
+                ByteString nullDigest = ByteString.copyFrom(new byte[32]);
+                if (nullDigest.equals(prePrepareDigest)) {
+                    logger.info("PrePrepare digest for seq {} indicates null/no-op; creating no-op request", nextSeqNum);
+                    MessageServiceOuterClass.ClientRequest noOp = handleNullRequestIfNeeded(null, prePrepareDigest, nextSeqNum);
+                    if (noOp != null) {
+                        nextRequest = noOp;
+                        pendingOperations.put(nextSeqNum, nextRequest);
+                    } else {
+                        logger.info("Failed to create no-op for seq {} despite null digest; cannot proceed", nextSeqNum);
+                        break;
+                    }
+                } else {
+                    // Non-null digest: per request, do not attempt to resolve the client request here; wait
+                    logger.info("PrePrepare digest for seq {} is non-null and not a no-op; client request resolution handled elsewhere; cannot execute pending", nextSeqNum);
+                    break;
+                }
             }
 
             // Execute the operation using shared logic
@@ -187,11 +274,10 @@ public class StateMachineOperator {
             // Update lastExecutedView after successful execution
             lastExecutedView = state.getViewNumber();
 
-            // remember the reply
-            rememberReply(reply);
-
-            // Send the reply to the client for the pending operation using the callback
-            replySender.accept(nextRequest, reply);
+            if (reply != null) {
+                rememberReply(reply);
+                replySender.accept(nextRequest, reply);
+            }
         }
         logger.info("Finished executing pending operations up to seqNum {}", lastExecutedSeqNum);
     }
@@ -227,8 +313,15 @@ public class StateMachineOperator {
 
     public boolean applySnapshot(Object snapshot, long seqNum) {
         lastExecutedSeqNum = seqNum;
-        pendingOperations.clear();
-        return stateMachine.applySnapshot(snapshot);
+        // remove all from pending operations with key less than or equal to seqNum
+
+        boolean applied = stateMachine.applySnapshot((Map<String, Double>) snapshot);
+        if (applied) {
+            logger.info("APPLY SNAPSHOT: Successfully applied snapshot at seqNum {}", seqNum);
+            pendingOperations.keySet().removeIf(key -> key <= seqNum);
+            updateTimer();
+        }
+        return applied;
     }
 
     public Object snapshot() {

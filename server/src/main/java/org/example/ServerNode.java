@@ -9,6 +9,7 @@ import org.example.consensus.handlers.*;
 import org.example.consensus.senders.*;
 import org.example.messaging.ServerMessage;
 import org.example.messaging.ServerMessageReceiver;
+import org.example.serverstate.OperationLogEntry;
 import org.example.serverstate.OperationStatus;
 import org.example.serverstate.ServerState;
 
@@ -76,9 +77,10 @@ public class ServerNode extends Node {
         this.commitHandler = new CommitHandler(state, majorityCount(), commitSender, clientReplySender);
         this.checkpointHandler = new CheckpointHandler(state, majorityCount(), checkpointSender);
         this.stateMessageHandler = new StateMessageHandler(state);
-        this.newViewHandler = new NewViewHandler(state, auth, livenessTimer, prepareSender);
 
-        this.newViewSender = new NewViewSender(serverId, majorityCount(), commLogger, auth, checkpointHandler, networkExecutor);
+        this.newViewSender = new NewViewSender(serverId, majorityCount(), livenessTimer, commLogger, auth, checkpointHandler, prePrepareSender, networkExecutor);
+
+        this.newViewHandler = new NewViewHandler(state, auth, livenessTimer, prepareSender, newViewSender, prePrepareHandler);
         this.viewChangeHandler = new ViewChangeHandler(state, auth, majorityCount(), livenessTimer, viewChangeSender, newViewSender);
     }
 
@@ -99,17 +101,15 @@ public class ServerNode extends Node {
     // Timer callbacks
 
     public void onLivenessTimeout() {
-        logger.warn("View change timeout occurred in view {}, re-broadcasting view change message", state.getViewNumber());
-
-        livenessTimer.stop();
+        logger.warn("Liveness timeout occurred in view {}, attempting view change", state.getViewNumber());
 
         if (state.getLastExecutedView() < state.getViewNumber()) {
-            logger.info("Extending liveness timeout for view {}", state.getViewNumber() + 1);
+            logger.info("Extending liveness timeout for view {} as last executed view is {}", state.getViewNumber() + 1, state.getLastExecutedView());
             livenessTimer.addToTimeoutMillis(Config.getServerTimeoutMillis());
         } else livenessTimer.setTimeoutMillis(Config.getServerTimeoutMillis());
 
         state.setViewChangeInProgress(true);
-        viewChangeSender.broadcastViewChange(state);
+        executorManager.submitMessageProcessing(() -> viewChangeSender.broadcastViewChange(state));
     }
 
     public void reset() {
@@ -180,8 +180,23 @@ public class ServerNode extends Node {
         });
     }
 
+    public void handleGetClientRequest(MessageServiceOuterClass.ClientRequestMessage request) {
+        executorManager.submitMessageProcessing(() -> {
+            long seqNum = request.getSequenceNumber();
+            String requesterId = request.getRequesterId();
+            logger.info("Handling getClientRequest for seq {} from requester {}", seqNum, requesterId);
+            MessageServiceOuterClass.ClientRequest clientRequest = state.getOperation(seqNum).getRequest();
+            if (clientRequest == null) {
+                logger.info("No client request found for seq {}, cannot fulfill getClientRequest", seqNum);
+                return;
+            }
+            clientRequestSender.forwardClientRequest(request.getRequesterId(), clientRequest);
+        });
+    }
+
     public String getOperation(long sequenceNumber) {
-        return state.getOperation(sequenceNumber).toString();
+        OperationLogEntry operation = state.getOperation(sequenceNumber);
+        return operation == null ? state.getDefaultOperation(sequenceNumber).toString() : operation.toString();
     }
 
     public String printOperationLog() {

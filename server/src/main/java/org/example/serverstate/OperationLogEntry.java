@@ -38,7 +38,7 @@ public class OperationLogEntry {
     }
 
     private String printOperation() {
-        if (request == null || request.getOperation() == null) {
+        if (request == null || !request.hasOperation()) {
             return "null";
         }
         if (request.getOperation().hasTransfer()) {
@@ -50,7 +50,7 @@ public class OperationLogEntry {
             String accountId = request.getOperation().getBalanceRequest().getAccountId();
             return String.format("%s (%s)", request.getOperation().getOpCase(), accountId);
         } else {
-            return "unknown operation";
+            return "null";
         }
     }
 

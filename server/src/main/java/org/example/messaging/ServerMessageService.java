@@ -172,6 +172,12 @@ public class ServerMessageService extends MessageServiceGrpc.MessageServiceImplB
         serverNode.handleNewView(request);
     }
 
+    @Override
+    public void getClientRequest(MessageServiceOuterClass.ClientRequestMessage request, StreamObserver<Empty> responseObserver) {
+        // Log using CommunicationLogger overload
+        communicationLogger.add(request, false);
+        serverNode.handleGetClientRequest(request);
+    }
 
     @Override
     public void getLog(Empty request, StreamObserver<MessageServiceOuterClass.CLIResponse> responseObserver) {

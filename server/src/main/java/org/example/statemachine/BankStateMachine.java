@@ -128,6 +128,7 @@ public final class BankStateMachine implements StateMachine<Map<String, Double>>
                     throw new IllegalArgumentException("Snapshot map contains invalid key/value types");
                 }
             }
+            logger.info("Converted snapshot object to Map<String, Double>: {}", result);
             return Map.copyOf(result);
         } else {
             throw new IllegalArgumentException("Snapshot object is not of type Map<String, Double>");
@@ -149,7 +150,7 @@ public final class BankStateMachine implements StateMachine<Map<String, Double>>
             Map<String, Double> snap = convertSnapshot(snapshot);
             balances.clear();
             balances.putAll(snap);
-//            logger.info("APPLY SNAPSHOT: Successfully applied snapshot: {}", snap);
+            logger.info("APPLY SNAPSHOT: Successfully applied snapshot: {}", snap);
             return true;
         } catch (IllegalArgumentException e) {
             logger.error("APPLY SNAPSHOT: Failed to apply snapshot due to invalid format: {}", e.getMessage());

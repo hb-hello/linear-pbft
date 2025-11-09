@@ -18,6 +18,11 @@ public final class SenderDispatcher implements AutoCloseable {
     private final AtomicLong submitted = new AtomicLong();
     private final AtomicLong completed = new AtomicLong();
 
+    // Generation token to distinguish tasks belonging to different transaction set runs.
+    // When reset() is called, this token is incremented so previously-submitted tasks
+    // will not affect the new counters or perform work for the new set.
+    private final AtomicLong generation = new AtomicLong(0);
+
     public SenderDispatcher() {
         for (char c = 'A'; c <= 'J'; c++) {
             String id = String.valueOf(c);
@@ -52,16 +57,28 @@ public final class SenderDispatcher implements AutoCloseable {
 
         ExecutorService ex = executors.get(clientId);
         if (ex == null) throw new IllegalStateException("No executor for client " + clientId);
+
+        // Capture the current generation so we can ignore tasks submitted for previous runs
+        final long taskGen = generation.get();
         submitted.incrementAndGet();
         ex.execute(() -> {
             try {
+                // If the generation has changed since submission, skip processing this task.
+                if (taskGen != generation.get()) {
+                    return;
+                }
+
                 ClientNode clientNode = clients.get(clientId);
-//                clientNode.reset();
+                // If client has been removed for some reason, skip
+                if (clientNode == null) return;
 
                 // Process the operation directly
                 clientNode.processOperation(operation);
             } finally {
-                completed.incrementAndGet();
+                // Only count completion for tasks that belong to the current generation.
+                if (taskGen == generation.get()) {
+                    completed.incrementAndGet();
+                }
             }
         });
     }
@@ -73,34 +90,22 @@ public final class SenderDispatcher implements AutoCloseable {
     }
 
     /**
-     * Cancels all pending operations and resets for a new transaction set.
-     * Shuts down all executors and recreates them with fresh client nodes.
+     * Cancels pending operations for the current transaction set and resets for a new set.
+     * Clients remain running; we advance the generation token so previously-submitted tasks
+     * become no-ops and will not affect counters. Client state is reset via ClientNode.reset().
      */
     public void reset() {
-        // Shutdown all existing executors
-        // Forcefully shutdown, cancelling pending tasks
-        executors.values().forEach(ExecutorService::shutdownNow);
+        // Bump generation so previously-submitted tasks will be ignored.
+        generation.incrementAndGet();
 
-        // Shutdown all existing client nodes
+        // Reset client state (do not shut them down)
         clients.values().forEach(ClientNode::reset);
 
-        // Clear the maps
-        executors.clear();
-//        clients.clear();
-
-        // Reset counters
+        // Reset counters for the new transaction set
         submitted.set(0);
         completed.set(0);
 
-        // Recreate executors and clients
-        for (char c = 'A'; c <= 'J'; c++) {
-            String id = String.valueOf(c);
-            executors.put(id, newSingle("sender-" + id));
-//            ClientNode client = new ClientNode(id);
-//            client.start();
-//            clients.put(id, client);
-        }
-        executors.put(LF_SENDER, newSingle("sender-LF"));
+        // Executors and clients remain intact to avoid tearing down network resources.
     }
 
     @Override

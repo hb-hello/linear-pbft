@@ -87,10 +87,6 @@ public class CommitHandler {
 
         // Find the corresponding client request
         MessageServiceOuterClass.ClientRequest clientRequest = state.findClientRequest(digest);
-        if (clientRequest == null) {
-            logger.warn("Client Request not found for digest: {}", digest);
-            return;
-        }
 
         // Execute the operation (returns a future)
         state.executeRequest(clientRequest, digest, sequenceNumber)

@@ -5,6 +5,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.example.MessageServiceOuterClass;
 import org.example.consensus.LivenessTimer;
+import org.example.consensus.senders.NewViewSender;
 import org.example.consensus.senders.PrepareSender;
 import org.example.crypto.MessageAuthenticator;
 import org.example.messaging.ServerMessage;
@@ -18,14 +19,18 @@ public class NewViewHandler {
     private final ServerState state;
     private final MessageAuthenticator auth;
     private final PrepareSender prepareSender;
+    private final NewViewSender newViewSender;
+    private final PrePrepareHandler prePrepareHandler;
 
     private final LivenessTimer viewChangeTimer;
 
-    public NewViewHandler(ServerState state, MessageAuthenticator auth, LivenessTimer viewChangeTimer, PrepareSender prepareSender) {
+    public NewViewHandler(ServerState state, MessageAuthenticator auth, LivenessTimer viewChangeTimer, PrepareSender prepareSender, NewViewSender newViewSender, PrePrepareHandler prePrepareHandler) {
         this.prepareSender = prepareSender;
         this.state = state;
         this.auth = auth;
         this.viewChangeTimer = viewChangeTimer;
+        this.newViewSender = newViewSender;
+        this.prePrepareHandler = prePrepareHandler;
     }
 
     /**
@@ -265,6 +270,8 @@ public class NewViewHandler {
             return;
         }
 
+        state.setViewChangeInProgress(true);
+
         List<MessageServiceOuterClass.ViewChangeMessage> viewChangeMessages = newView.getViewChangeMessagesList();
 
         // Verify we have enough view change messages (should be quorum)
@@ -283,6 +290,7 @@ public class NewViewHandler {
                 return;
             }
         }
+        logger.info("All view change messages in NewViewMessage for view {} are valid", newViewNumber);
 
         // Calculate min/max sequence numbers and pending requests from view change messages
         long minSeqNum = calculateMinSequenceNumber(viewChangeMessages);
@@ -330,13 +338,28 @@ public class NewViewHandler {
             return;
         }
 
-        // Stop view change timer and clear view change state
+        // Stop view change timer
         viewChangeTimer.stop();
+        if (!state.getPendingOperations().isEmpty()) {
+            logger.info("Restarting liveness timer for view {} due to pending operations", newViewNumber);
+            viewChangeTimer.start();
+        }
+
+        // clear view change state
         state.setViewChangeInProgress(false);
 
         // Process each pre-prepare message from the new view
         for (MessageServiceOuterClass.PrePrepareMessage prePrepareMessage : newView.getPrePrepareMessagesList()) {
             processPrePrepareFromNewView(prePrepareMessage);
+        }
+
+        Set<MessageServiceOuterClass.PrePrepareRequest> prePrepareRequests = state.snapshotPrePrepareBuffer();
+        if (!prePrepareRequests.isEmpty()) {
+            logger.info("Processing {} buffered PrePrepare messages after applying NewView for view {}",
+                    prePrepareRequests.size(), newViewNumber);
+            for (MessageServiceOuterClass.PrePrepareRequest bufferedPrePrepare : prePrepareRequests) {
+                prePrepareHandler.handle(bufferedPrePrepare);
+            }
         }
 
         logger.info("Successfully applied NewView for view {}", newViewNumber);
@@ -377,11 +400,18 @@ public class NewViewHandler {
             return;
         }
 
-        // Append the pre-prepare message to state (with null request since we don't have it yet)
-        if (!state.appendServerMessage(prePrepareMessage, null, 0)) {
-            logger.info("Failed to append PrePrepare from NewView for view {} seq {}, already exists",
+        ByteString nullDigest = ByteString.copyFrom(new byte[32]);
+        if (!digest.equals(nullDigest)) {
+            logger.info("PrePrepare from NewView for view {} seq {} is a not no-op (null digest), requesting client message from other servers",
                     viewNumber, seqNum);
-            return;
+            newViewSender.requestClientMessage(state, viewNumber, prePrepareMessage);
+        } else {
+            // Append the pre-prepare message to state (with null request since we don't have it yet)
+            if (!state.appendServerMessage(prePrepareMessage, null, 0)) {
+                logger.info("Failed to append PrePrepare from NewView for view {} seq {}, already exists",
+                        viewNumber, seqNum);
+                return;
+            }
         }
 
         prepareSender.sendPrepare(state.getViewNumber(), prePrepareMessage.getSequenceNumber(),

@@ -54,13 +54,14 @@ public final class ServerState {
     // Checkpoints and message history
     private final ConcurrentHashMap<Long, MessageServiceOuterClass.CheckpointMessage> stableCheckpoints = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<Long, Object> stableCheckpointSnapshots = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<Long, byte[]> stableCheckpointSnapshotDigests = new ConcurrentHashMap<>();
     private final ServerMessageTracker serverMessageTracker = new ServerMessageTracker();
 
     // store latest view for each prepared seq num -> key is seq num and value is view number
     private final ConcurrentHashMap<Long, Long> isPreparedCache = new ConcurrentHashMap<>();
 
-    // Output buffer drained by networking; enqueue from actor for ordering with state updates
-    private final BlockingQueue<Object> outputBuffer = new LinkedBlockingQueue<>();
+    // PrePrepare buffer to hold pre-prepare messages for next view when view change is in progress
+    private final BlockingQueue<MessageServiceOuterClass.PrePrepareRequest> prePrepareBuffer = new LinkedBlockingQueue<>();
 
     private final List<Long> requestDurations = new ArrayList<>();
 
@@ -224,6 +225,10 @@ public final class ServerState {
             stableCheckpoints.put(checkpointMessage.getSequenceNumber(), checkpointMessage);
             stableCheckpointSnapshots.put(checkpointMessage.getSequenceNumber(),
                     stateMachineOperator.snapshot());
+            stableCheckpointSnapshotDigests.put(checkpointMessage.getSequenceNumber(),
+                    MessageUtil.generateDigest(stateMachineOperator.snapshotToString()));
+
+            operationLog.updateStatusForAllBefore(checkpointMessage.getSequenceNumber(), OperationStatus.CHECKPOINTED);
 
             // update watermarks
             long seqNum = checkpointMessage.getSequenceNumber();
@@ -245,6 +250,10 @@ public final class ServerState {
 
     public Object getLatestStableCheckpointSnapshot() {
         return runSync(() -> stableCheckpointSnapshots.get(latestStableCheckpointSeqNum));
+    }
+
+    public byte[] getLatestStableCheckpointSnapshotDigest() {
+        return runSync(() -> stableCheckpointSnapshotDigests.get(latestStableCheckpointSeqNum));
     }
 
     public long getLatestStableCheckpointSeqNum() {
@@ -273,6 +282,12 @@ public final class ServerState {
             long first = ++seqNum;
             long second = ++seqNum;
             return Arrays.asList(first, second);
+        });
+    }
+
+    public void setSeqNum(long seqNum) {
+        runSync(() -> {
+            this.seqNum = seqNum;
         });
     }
 
@@ -326,12 +341,17 @@ public final class ServerState {
         return runSync(() -> viewChangeInProgress);
     }
 
-    public void setViewChangeInProgress(boolean viewChangeInProgress) {
-        runSync(() -> {
+    public boolean setViewChangeInProgress(boolean viewChangeInProgress) {
+        return runSync(() -> {
+            if (this.viewChangeInProgress == viewChangeInProgress) {
+                logger.info("View change in progress already set to {}, no change", viewChangeInProgress);
+                return false;
+            }
             logger.info("Setting viewChangeInProgress to {}", viewChangeInProgress);
             this.viewChangeInProgress = viewChangeInProgress;
             logger.info("Removing view change minimum quorum messages from consensus tracker");
             serverMessageTracker.removeFromConsensusTrackerByIndex(ServerMessage.VIEW_CHANGE);
+            return true;
         });
     }
 
@@ -396,28 +416,9 @@ public final class ServerState {
     // State-machine operations — example transfer and read-only balance
 
     // Generic execute that delegates to the pluggable state machine
-    public CompletableFuture<MessageServiceOuterClass.ClientReply> executeRequest(MessageServiceOuterClass.ClientRequest request, ByteString digest, long seqNum) {
-
-        // Handle null request (no-op) case
-        if (request == null || !request.hasOperation()) {
-            logger.info("Encountered null request for seqNum {}, checking the digest to verify if no-op", seqNum);
-            ByteString nullDigest = ByteString.copyFrom(new byte[32]);
-            if (nullDigest.equals(digest)) {
-                logger.info("Digest matches null digest, executing no-op for seqNum {}", seqNum);
-
-                MessageServiceOuterClass.Operation noOp = MessageServiceOuterClass.Operation.newBuilder()
-                        .setBalanceRequest(MessageServiceOuterClass.BalanceRequest.newBuilder().setAccountId("A").build())
-                        .build();
-
-                request = MessageServiceOuterClass.ClientRequest.newBuilder().setClientId("no-op")
-                        .setTimestamp(System.currentTimeMillis())
-                        .setOperation(noOp)
-                        .build();
-            }
-        }
-
-        logger.info("Attempting to execute operation of type: {}", request.getOperation().getOpCase());
-        return stateMachineOperator.executeOperation(request, seqNum);
+    public CompletableFuture<MessageServiceOuterClass.ClientReply> executeRequest(MessageServiceOuterClass.ClientRequest request, com.google.protobuf.ByteString digest, long seqNum) {
+        // Delegate to operator which now centralizes null request (no-op) handling.
+        return stateMachineOperator.executeOperation(request, digest, seqNum);
     }
 
     public CompletableFuture<MessageServiceOuterClass.ClientReply> executeReadOnlyRequest(MessageServiceOuterClass.ClientRequest request) {
@@ -457,7 +458,7 @@ public final class ServerState {
     }
 
     public Long lastReplyTimestamp(String clientId) {
-        logger.info("Fetching last reply timestamp for clientId: {}", clientId);
+        logger.info("Fetching last reply timestamp for clientId: {} : {}", clientId, stateMachineOperator.lastReplyTimestamp(clientId));
         return runSync(() -> stateMachineOperator.lastReplyTimestamp(clientId));
     }
 
@@ -476,7 +477,6 @@ public final class ServerState {
         ServerMessage serverMsg = ServerMessage.wrap(msg);
         logger.info("Appending server message: {} {}", serverMsg.toDetailedString(), clientRequest != null ? "with client request" : "without client request");
         return runSync(() -> {
-//            logger.info("Is message type pre prepare? {}", Objects.equals(serverMsg.getMessageType(), ServerMessage.PRE_PREPARE));
             if (Objects.equals(serverMsg.getMessageType(), ServerMessage.PRE_PREPARE))
                 operationLog.addOperation(serverMsg.getSequenceNumber().orElse(-1L), clientRequest, OperationStatus.PREPREPARED);
             return serverMessageTracker.append(serverMsg, required);
@@ -497,6 +497,10 @@ public final class ServerState {
         return runSync(() -> operationLog.getOperation(sequenceNumber));
     }
 
+    public OperationLogEntry getDefaultOperation(long sequenceNumber) {
+        return runSync(() -> operationLog.getDefaultOperation(sequenceNumber));
+    }
+
     public OperationLog getOperationLog() {
         return runSync(() -> operationLog);
     }
@@ -511,7 +515,17 @@ public final class ServerState {
 
     public boolean appendClientRequest(Message msg) {
         return runSync(() -> {
+//            Message clearedMsg = MessageAuthenticator.removeSignature(msg);
             String digestString = MessageUtil.digestToString(MessageUtil.generateDigest(msg));
+
+            long seqNum = findSeqNumPrePrepareByDigest(ByteString.copyFrom(MessageUtil.generateDigest(msg)));
+            if (seqNum != -1L) {
+                logger.info("Client request with digest {} already exists in operation log, adding to the right sequence number", digestString);
+                return appendClientRequest(msg, seqNum);
+            } else {
+                logger.info("Client request with digest {} is new, appending without consensus", digestString);
+            }
+
             if (serverMessageTracker.appendWithoutConsensus(ServerMessage.wrap(msg), digestString)) {
                 if (livenessTimer != null) livenessTimer.startIfNotRunning(); // start timer only if request is new
                 return true;
@@ -522,11 +536,16 @@ public final class ServerState {
 
     public boolean appendClientRequest(Message msg, long seqNum) {
         return runSync(() -> {
+            String digestString = MessageUtil.digestToString(MessageUtil.generateDigest(msg));
             if ((msg instanceof MessageServiceOuterClass.ClientRequest clientRequest)) {
                 logger.warn("Message is not a ClientRequest, cannot append to operation log");
                 operationLog.setRequest(seqNum, clientRequest);
             }
-            return appendClientRequest(msg);
+            if (serverMessageTracker.appendWithoutConsensus(ServerMessage.wrap(msg), digestString)) {
+                if (livenessTimer != null) livenessTimer.startIfNotRunning(); // start timer only if request is new
+                return true;
+            }
+            return false;
         });
     }
 
@@ -620,8 +639,40 @@ public final class ServerState {
         });
     }
 
+    public List<MessageServiceOuterClass.ClientRequest> findClientRequestsNotPrePrepared() {
+        return runSync(() -> {
+            List<MessageServiceOuterClass.ClientRequest> pendingRequests = new ArrayList<>();
+            for (long sequenceNumber : operationLog.seqNumsSeen()) {
+                OperationLogEntry entry = operationLog.getOperation(sequenceNumber);
+                if (entry.getRequest() != null) {
+                    if (findCurrentViewPrePrepare(sequenceNumber) != null) continue;
+                    pendingRequests.add(entry.getRequest());
+                }
+            }
+            return pendingRequests;
+        });
+    }
+
     public ServerMessage findPrePrepare(long viewNumber, long sequenceNumber) {
         return runSync(() -> serverMessageTracker.findMessage(ServerMessage.PRE_PREPARE, viewNumber, sequenceNumber, primaryServerId));
+    }
+
+    public ServerMessage findCurrentViewPrePrepare(long sequenceNumber) {
+        return runSync(() -> findPrePrepare(this.viewNumber, sequenceNumber));
+    }
+
+    public long findSeqNumPrePrepareByDigest(ByteString digest) {
+        return runSync(() -> {
+            if (digest == null) return -1L;
+            for (ServerMessage message : serverMessageTracker.getMessagesByType(ServerMessage.PRE_PREPARE, viewNumber)) {
+                MessageServiceOuterClass.PrePrepareMessage prePrepareMessage =
+                        (MessageServiceOuterClass.PrePrepareMessage) message.getMessage();
+                if (prePrepareMessage.getDigest().equals(digest)) {
+                    return prePrepareMessage.getSequenceNumber();
+                }
+            }
+            return -1L;
+        });
     }
 
     public ByteString getPrePrepareDigest(long viewNumber, long sequenceNumber) {
@@ -686,7 +737,7 @@ public final class ServerState {
 
             if (isPreparedCache.containsKey(sequenceNumber) && isPreparedCache.get(sequenceNumber) == viewNumber) {
                 logger.info("Prepared cache found for seq {}: true", sequenceNumber);
-                if (livenessTimer != null) logger.info("Committed at seq {}, time remaining to execute : {}", sequenceNumber, livenessTimer.getRemainingTimeMillis());
+                if (livenessTimer != null) logger.info("Prepared cached at seq {}, time remaining to execute : {}", sequenceNumber, livenessTimer.getRemainingTimeMillis());
                 return true;
             }
 
@@ -802,8 +853,10 @@ public final class ServerState {
         return runSync(() -> {
             ServerMessage message = serverMessageTracker.findMessage(ServerMessage.COMMIT, viewNumber, sequenceNumber, collectorServerId);
             if (message == null) {
+                logger.info("No commit message found for view {} seq {} from collector {}", viewNumber, sequenceNumber, collectorServerId);
                 return false;
             }
+            logger.info("Found commit message for view {} seq {} from collector {} with aggregated flag {}", viewNumber, sequenceNumber, collectorServerId, message.isAggregated());
             return message.isAggregated();
         });
     }
@@ -853,15 +906,18 @@ public final class ServerState {
         });
     }
 
-    public void enqueueOutbound(Object msg) {
+    public void enqueuePrePrepareBuffer(MessageServiceOuterClass.PrePrepareRequest msg) {
         runSync(() -> {
-            outputBuffer.add(msg);
+            prePrepareBuffer.add(msg);
         });
     }
 
-    public BlockingQueue<Object> outboundQueue() {
-        // Expose the queue for a dedicated draining thread; callers must not mutate state directly
-        return outputBuffer;
+    public Set<MessageServiceOuterClass.PrePrepareRequest> snapshotPrePrepareBuffer() {
+        return runSync(() -> new HashSet<>(prePrepareBuffer));
+    }
+
+    public BlockingQueue<MessageServiceOuterClass.PrePrepareRequest> prePrepareBuffer() {
+        return prePrepareBuffer;
     }
 
     // Async variants for composition where needed
@@ -894,8 +950,9 @@ public final class ServerState {
             operationLog.clear();
             stableCheckpoints.clear();
             stableCheckpointSnapshots.clear();
+            stableCheckpointSnapshotDigests.clear();
             serverMessageTracker.clear();
-            outputBuffer.clear();
+            prePrepareBuffer.clear();
             resetWatermarks();
             requestDurations.clear();
             isPreparedCache.clear();

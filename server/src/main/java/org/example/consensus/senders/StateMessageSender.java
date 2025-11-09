@@ -29,22 +29,19 @@ public class StateMessageSender  extends MessageSender {
         logger.info("Sending state message to server {}", targetServerId);
 
         Object snapshot = state.getLatestStableCheckpointSnapshot();
+        byte[] digest = state.getLatestStableCheckpointSnapshotDigest();
 
         if (snapshot == null) {
             logger.warn("No stable checkpoint snapshot available to send to server {}", targetServerId);
             return;
         }
 
-        ByteString digest = ByteString.copyFrom(MessageUtil.generateDigest(snapshot));
-
         MessageServiceOuterClass.StateMessage stateMessage = MessageServiceOuterClass.StateMessage.newBuilder()
                 .putAllStateSnapshot(BankStateMachine.convertSnapshot(snapshot))
-                .setDigest(digest)
+                .setDigest(ByteString.copyFrom(digest))
                 .build();
 
-        
-
-        signAndSend(targetServerId, stateMessage, (stub, signed) -> stub.stateResponse((MessageServiceOuterClass.StateMessage) signed));
+        signAndSend(targetServerId, state.isPrimary(), stateMessage, (stub, signed) -> stub.stateResponse((MessageServiceOuterClass.StateMessage) signed));
         logger.info("Sent state message to server {}", targetServerId);
     }
 }

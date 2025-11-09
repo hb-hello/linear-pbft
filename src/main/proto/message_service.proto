@@ -23,7 +23,7 @@ service MessageService {
     // view change
     rpc ViewChange(ViewChangeMessage) returns (google.protobuf.Empty);
     rpc NewView(NewViewMessage) returns (google.protobuf.Empty);
-    rpc GetClientRequest(SequenceNumber) returns (google.protobuf.Empty);
+    rpc GetClientRequest(ClientRequestMessage) returns (google.protobuf.Empty);
 
     // for cli
     rpc SetActiveFlag(ActiveFlag) returns (Acknowledgement);
@@ -183,4 +183,9 @@ message NewViewMessage {
     repeated PrePrepareMessage pre_prepare_messages = 3;
     string signer_id = 4;
     bytes signature = 5;
+}
+
+message ClientRequestMessage {
+    int64 sequence_number = 1;
+    string requester_id = 2;
 }

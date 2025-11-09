@@ -5,6 +5,7 @@ import com.google.protobuf.Descriptors;
 import com.google.protobuf.Message;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.example.MaliceInjector;
 import org.example.config.Config;
 import org.example.crypto.tss.SignerVerifierTSS;
 import org.example.crypto.tss.ThresholdKeyManager;
@@ -65,7 +66,7 @@ public class MessageAuthenticator {
     }
 
     public Message sign(Message message) {
-        return signWithTSS(message);
+        return MaliceInjector.injectSignAttack(selfId, signWithTSS(message));
     }
 
     public boolean verify(Message message) {

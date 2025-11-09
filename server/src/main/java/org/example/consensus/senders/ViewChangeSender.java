@@ -94,7 +94,7 @@ public class ViewChangeSender extends MessageSender {
         logger.info("Broadcasting ViewChange message for new view {}", newViewNumber);
 
 
-        broadcast(signedViewChange, (stub, signed) -> stub.viewChange((MessageServiceOuterClass.ViewChangeMessage) signed));
+        broadcast(signedViewChange, state.isPrimary(), (stub, signed) -> stub.viewChange((MessageServiceOuterClass.ViewChangeMessage) signed));
         logger.info("Broadcasted ViewChange message for new view {}", newViewNumber);
     }
 }

@@ -28,6 +28,10 @@ public class PrePrepareHandler {
 
     private boolean verifyClientRequest(MessageServiceOuterClass.ClientRequest request) {
         try {
+            if (request.getSignerId().equals("no-op")) {
+                // no-op requests are trusted
+                return true;
+            }
             return auth.verify(request);
         } catch (Exception e) {
             logger.error("Failed to parse ClientRequest from PrePrepare: {}", e.getMessage());
@@ -37,7 +41,6 @@ public class PrePrepareHandler {
 
     private boolean isValid(MessageServiceOuterClass.PrePrepareMessage prePrepareMessage) {
         try {
-            state.ensureViewChangeNotInProgress();
             state.ensureInView(prePrepareMessage.getViewNumber());
             ServerMessage alreadyLoggedPrePrepare = state.findPrePrepare(prePrepareMessage.getViewNumber(), prePrepareMessage.getSequenceNumber());
             if (alreadyLoggedPrePrepare != null && alreadyLoggedPrePrepare.getDigest().isPresent()) {
@@ -47,6 +50,7 @@ public class PrePrepareHandler {
                 return alreadyLoggedPrePrepare.getDigest().get().equals(prePrepareMessage.getDigest());
             }
             state.ensureInWatermarks(prePrepareMessage.getSequenceNumber());
+            state.ensureViewChangeNotInProgress();
             return true;
         } catch (IllegalStateException e) {
             return false;
@@ -64,6 +68,12 @@ public class PrePrepareHandler {
         }
 
         MessageServiceOuterClass.PrePrepareMessage prePrepareMessage = prePrepareRequest.getPrePrepareMessage();
+
+        if (state.isViewChangeInProgress() && prePrepareMessage.getViewNumber() == state.getViewNumber()) {
+            logger.info("View change in progress, queuing PrePrepare for view {} seq {}",
+                    prePrepareMessage.getViewNumber(), prePrepareMessage.getSequenceNumber());
+            state.enqueuePrePrepareBuffer(prePrepareRequest);
+        }
 
         if (!isValid(prePrepareMessage)) {
             logger.info("Invalid PrePrepare message, ignoring for view {}, seq {}",

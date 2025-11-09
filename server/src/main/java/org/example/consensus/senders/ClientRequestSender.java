@@ -21,6 +21,6 @@ public class ClientRequestSender extends MessageSender {
 
     public void forwardClientRequest(String targetServerId, MessageServiceOuterClass.ClientRequest request) {
         logger.info("Forwarding ClientRequest to server {}: {}", targetServerId, request.getTimestamp());
-        signAndSend(targetServerId, request, (stub, signed) -> stub.request((MessageServiceOuterClass.ClientRequest) signed));
+        send(targetServerId, false, request, (stub, signed) -> stub.request((MessageServiceOuterClass.ClientRequest) signed));
     }
 }

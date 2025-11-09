@@ -27,7 +27,7 @@ public class CheckpointSender extends MessageSender {
 
     private ByteString generateCheckpointDigest(ServerState state) {
         logger.info("Generating checkpoint digest for server {}", state.getServerId());
-        Object stateMachineSnapshot = state.snapshotStateMachine();
+        Object stateMachineSnapshot = state.printSnapshotStateMachine();
         logger.info("State machine snapshot taken : {}", stateMachineSnapshot.toString());
         byte[] checkpointDigest = MessageUtil.generateDigest(stateMachineSnapshot);
         return ByteString.copyFrom(checkpointDigest);
@@ -62,9 +62,7 @@ public class CheckpointSender extends MessageSender {
             return;
         };
 
-
-
-        broadcast(signedCheckpointMsg, (stub, signed) -> stub.checkpoint((MessageServiceOuterClass.CheckpointMessage) signed));
+        broadcast(signedCheckpointMsg, state.isPrimary(), (stub, signed) -> stub.checkpoint((MessageServiceOuterClass.CheckpointMessage) signed));
         logger.info("Sent Checkpoint for view {} seq {}", viewNumber, sequenceNumber);
     }
 
@@ -74,6 +72,6 @@ public class CheckpointSender extends MessageSender {
                 .setRequesterId(serverId)
                 .build();
 
-        broadcast(stateRequestMessage, (stub, msg) -> stub.stateRequest((MessageServiceOuterClass.StateRequestMessage) msg));
+        broadcast(stateRequestMessage, false, (stub, msg) -> stub.stateRequest((MessageServiceOuterClass.StateRequestMessage) msg));
     }
 }

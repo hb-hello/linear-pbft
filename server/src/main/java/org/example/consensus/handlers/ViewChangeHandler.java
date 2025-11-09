@@ -129,8 +129,18 @@ public class ViewChangeHandler {
             if (state.appendAndCheckMinQuorumForViewChange(viewChangeMessage, ServerNode.majorityCountForViewChange())) {
                 logger.info("ViewChangeMessage for view {} has reached minimum quorum for requesting view change, setting view change in progress to true and broadcasting ViewChange message",
                         viewNumber);
-                state.setViewChangeInProgress(true);
+
+                if (!state.setViewChangeInProgress(true)) {
+                    logger.info("View change already in progress for view {}, not updating view or primary", viewNumber);
+                    return;
+                }
+                state.setViewAndPrimary(viewNumber);
+                // stopping timer in case it was running from a previous view change
+                viewChangeTimer.stop();
+
                 viewChangeSender.broadcastViewChange(state, state.getViewNumber(), viewChangeMessage.getViewNumber());
+                List<MessageServiceOuterClass.ClientRequest> pendingClientRequests = state.findClientRequestsNotPrePrepared();
+                if (!pendingClientRequests.isEmpty()) viewChangeTimer.start();
                 return;
             }
 
@@ -138,7 +148,6 @@ public class ViewChangeHandler {
             return;
         }
 
-        state.setViewAndPrimary(viewNumber);
 
         if (MaliceInjector.injectCrashAttack(state.getServerId())) {
             logger.info("MaliceInjector crash attack activated - refraining from broadcasting NewView message");

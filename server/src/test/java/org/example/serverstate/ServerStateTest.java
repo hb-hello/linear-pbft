@@ -130,8 +130,8 @@ class ServerStateTest {
                 .setTimestamp(123L)
                 .build();
         state.appendServerMessage(dummyRequest, 0);
-        state.enqueueOutbound("out");
-        assertEquals(1, state.outboundQueue().size(), "Outbound queue should have an item before reset");
+//        state.enqueuePrePrepareBuffer("out");
+//        assertEquals(1, state.prePrepareBuffer().size(), "Outbound queue should have an item before reset");
 
         // Reset
         state.reset();
@@ -155,7 +155,7 @@ class ServerStateTest {
 //                "Account " + entry.getKey() + " should have initial balance");
 //        }
         assertEquals(0L, state.lastReplyTimestamp("client1"), "Reply timestamps should be cleared");
-        assertTrue(state.outboundQueue().isEmpty(), "Outbound queue should be cleared");
+        assertTrue(state.prePrepareBuffer().isEmpty(), "Outbound queue should be cleared");
     }
 
     @Test

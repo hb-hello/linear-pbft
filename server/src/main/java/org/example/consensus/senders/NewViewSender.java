@@ -4,6 +4,7 @@ import com.google.protobuf.ByteString;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.example.MessageServiceOuterClass;
+import org.example.consensus.LivenessTimer;
 import org.example.consensus.handlers.CheckpointHandler;
 import org.example.crypto.MessageAuthenticator;
 import org.example.messaging.CommunicationLogger;
@@ -19,12 +20,18 @@ public class NewViewSender extends MessageSender {
 
     private final int quorumSize;
     private final CheckpointHandler checkpointHandler;
+    private final PrePrepareSender prePrepareSender;
 
-    public NewViewSender(String serverId, int quorumSize,
-                            CommunicationLogger commLogger, MessageAuthenticator auth, CheckpointHandler checkpointHandler, ExecutorService networkExecutor) {
+    private final LivenessTimer viewChangeTimer;
+
+    public NewViewSender(String serverId, int quorumSize, LivenessTimer viewChangeTimer,
+                            CommunicationLogger commLogger, MessageAuthenticator auth,
+                         CheckpointHandler checkpointHandler, PrePrepareSender prePrepareSender, ExecutorService networkExecutor) {
         super(serverId, commLogger, auth, networkExecutor);
         this.quorumSize = quorumSize;
         this.checkpointHandler = checkpointHandler;
+        this.viewChangeTimer = viewChangeTimer;
+        this.prePrepareSender = prePrepareSender;
     }
 
     private long calculateMinSequenceNumber(List<MessageServiceOuterClass.ViewChangeMessage> viewChangeMessages) {
@@ -76,6 +83,9 @@ public class NewViewSender extends MessageSender {
         ByteString nullDigest = ByteString.copyFrom(new byte[32]);
 
         for (long i = Math.max(minSeqNum, 1L); i <= maxSeqNum; i++) {
+
+            state.setSeqNum(i);
+
             if (!pendingRequests.containsKey(i)) {
                 logger.info("Appending null digest view {} seq {} as it is missing from pending requests", newViewNumber, i);
                 MessageServiceOuterClass.PrePrepareMessage nullPrePrepare = MessageServiceOuterClass.PrePrepareMessage.newBuilder()
@@ -97,25 +107,31 @@ public class NewViewSender extends MessageSender {
 
             MessageServiceOuterClass.PrePrepareMessage signedMsg = (MessageServiceOuterClass.PrePrepareMessage) auth.sign(prePrepare);
 
-            // find the client request to attach to this pre-prepare in the new view
-            MessageServiceOuterClass.ClientRequest clientRequest = state.findClientRequest(pendingRequests.get(i));
-            if (clientRequest == null) {
-                logger.info("Client request for view {} seq {} not found in state", newViewNumber, i);
-                MessageServiceOuterClass.SequenceNumber seqNum = MessageServiceOuterClass.SequenceNumber.newBuilder()
-                        .setSequenceNumber(i)
-                        .build();
-                logger.info("Requesting client request for view {} seq {} from other servers to append to state", newViewNumber, i);
-                broadcast(seqNum, (stub, msg) -> stub.getClientRequest((MessageServiceOuterClass.SequenceNumber) msg));
-                // state will be updated and whenever client request is received, it will be added to this sequence number
-                state.appendServerMessage(signedMsg, quorumSize);
-            } else {
-                logger.info("Client request for view {} seq {} found in state, no need to request", newViewNumber, i);
-                state.appendServerMessage(signedMsg, clientRequest, quorumSize);
-            }
+            requestClientMessage(state, newViewNumber, signedMsg);
 
             prePrepareMessages.add(signedMsg);
         }
         return prePrepareMessages;
+    }
+
+    public void requestClientMessage(ServerState state, long newViewNumber, MessageServiceOuterClass.PrePrepareMessage prePrepareMessage) {
+        // find the client request to attach to this pre-prepare in the new view
+        long seqNum = prePrepareMessage.getSequenceNumber();
+        MessageServiceOuterClass.ClientRequest clientRequest = state.findClientRequest(prePrepareMessage.getDigest());
+        if (clientRequest == null) {
+            logger.info("Client request for view {} seq {} not found in state", newViewNumber, seqNum);
+            MessageServiceOuterClass.ClientRequestMessage clientRequestMessage = MessageServiceOuterClass.ClientRequestMessage.newBuilder()
+                    .setSequenceNumber(seqNum)
+                    .setRequesterId(state.getServerId())
+                    .build();
+            logger.info("Requesting client request for view {} seq {} from other servers to append to state", newViewNumber, seqNum);
+            broadcast(clientRequestMessage, state.isPrimary(), (stub, msg) -> stub.getClientRequest((MessageServiceOuterClass.ClientRequestMessage) msg));
+            // state will be updated and whenever client request is received, it will be added to this sequence number
+            state.appendServerMessage(prePrepareMessage, quorumSize);
+        } else {
+            logger.info("Client request for view {} seq {} found in state, no need to request", newViewNumber, seqNum);
+            state.appendServerMessage(prePrepareMessage, clientRequest, quorumSize);
+        }
     }
 
     public void broadcastNewView(ServerState state) {
@@ -124,6 +140,12 @@ public class NewViewSender extends MessageSender {
         if (!state.isPrimary()) {
             logger.warn("Not sending new view because another server is primary");
             return;
+        }
+
+        viewChangeTimer.stop();
+        if (!state.getPendingOperations().isEmpty()) {
+            logger.info("Restarting liveness timer for view {} due to pending operations", viewNumber);
+            viewChangeTimer.start();
         }
 
         logger.info("Preparing to broadcast NewView message to all servers");
@@ -138,11 +160,6 @@ public class NewViewSender extends MessageSender {
 
         long minSeqNum = calculateMinSequenceNumber(viewChangeMessages);
         long maxSeqNum = calculateMaxSequenceNumber(viewChangeMessages);
-
-        if (minSeqNum >= maxSeqNum) {
-            logger.info("Not sending NewView message for view {} because there are no pending requests to carry over", viewNumber);
-            return;
-        }
 
         Map<Long, ByteString> pendingRequests = getPendingRequests(viewChangeMessages);
         List<MessageServiceOuterClass.PrePrepareMessage> prePrepareMessages = generateAndAppendNewPrePrepareMessages(state, viewNumber, minSeqNum, maxSeqNum, pendingRequests);
@@ -186,11 +203,26 @@ public class NewViewSender extends MessageSender {
             return;
         }
 
-        broadcast(signedNewView, (stub, signed) -> stub.newView((MessageServiceOuterClass.NewViewMessage) signed));
+        broadcast(signedNewView, state.isPrimary(), (stub, signed) -> stub.newView((MessageServiceOuterClass.NewViewMessage) signed));
         logger.info("Broadcasted NewView message for view {}", viewNumber);
 
         // mark view change as completed
         state.setViewChangeInProgress(false);
         state.completeNewViewBroadcast(viewNumber);
+
+        if (minSeqNum >= maxSeqNum) {
+            logger.info("Sent empty NewView message for view {} because there are no pending requests to carry over", viewNumber);
+            // reset sequence number to minSeqNum again.
+            state.setSeqNum(minSeqNum);
+
+            // if primary has pending client requests, process pre-prepares for them.
+            List<MessageServiceOuterClass.ClientRequest> pendingClientRequests = state.findClientRequestsNotPrePrepared();
+            if (!pendingClientRequests.isEmpty()) {
+                logger.info("Primary has {} pending client requests after NewView for view {}, processing them now", pendingClientRequests.size(), viewNumber);
+                for (MessageServiceOuterClass.ClientRequest clientRequest : pendingClientRequests) {
+                    prePrepareSender.attemptPrePrepare(clientRequest);
+                }
+            }
+        }
     }
 }

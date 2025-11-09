@@ -31,7 +31,7 @@ public class ClientReplySender extends MessageSender {
         }
 
         logger.info("Sending ClientReply to client {}: {}", clientId, reply.getResult().getOpCase());
-        signAndSend(clientId, reply, (stub, signed) -> stub.reply((MessageServiceOuterClass.ClientReply) signed));
+        signAndSend(clientId, false, reply, (stub, signed) -> stub.reply((MessageServiceOuterClass.ClientReply) signed));
     }
 
     public void resendCachedReply(ServerState state, MessageServiceOuterClass.ClientRequest request) {
@@ -42,7 +42,7 @@ public class ClientReplySender extends MessageSender {
         if (cachedReply != null) {
             logger.info("Resending cached ClientReply to client {}: {} {}", clientId,
                     cachedReply.getResult().getOpCase(), cachedReply.getResult().getResult());
-            signAndSend(clientId, cachedReply, (stub, signed) -> stub.reply((MessageServiceOuterClass.ClientReply) signed));
+            signAndSend(clientId, false, cachedReply, (stub, signed) -> stub.reply((MessageServiceOuterClass.ClientReply) signed));
         } else {
             logger.warn("No cached ClientReply found for client {} and timestamp {}, cannot resend", clientId, timestamp);
         }

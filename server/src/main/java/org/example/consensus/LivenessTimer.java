@@ -2,6 +2,7 @@ package org.example.consensus;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.example.config.Config;
 
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -58,11 +59,6 @@ public class LivenessTimer {
     }
 
     public synchronized void start() {
-        if (complete) {
-            logger.warn("Timer is already complete, cannot restart");
-            return;
-        }
-
         startTime = System.currentTimeMillis();
         logger.info("Starting liveness timer with timeout of {} ms", timeoutMillis);
         running = true;
@@ -133,9 +129,10 @@ public class LivenessTimer {
     }
 
     public void shutdown() {
+        timeoutMillis = Config.getServerTimeoutMillis();
         scheduler.shutdown();
         try {
-            if (!scheduler.awaitTermination(5, TimeUnit.SECONDS)) {
+            if (!scheduler.awaitTermination(100, TimeUnit.MILLISECONDS)) {
                 scheduler.shutdownNow();
             }
         } catch (InterruptedException e) {

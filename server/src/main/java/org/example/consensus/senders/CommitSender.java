@@ -54,7 +54,7 @@ public class CommitSender extends MessageSender {
         // Send the signed Commit to the collector
         if (!state.isCollector()) {
             
-            send(state.getCollectorServerId(), signedCommitMsg, (stub, signed) -> stub.commit((org.example.MessageServiceOuterClass.CommitMessage) signed));
+            send(state.getCollectorServerId(), state.isPrimary(), signedCommitMsg, (stub, signed) -> stub.commit((org.example.MessageServiceOuterClass.CommitMessage) signed));
         };
         logger.info("Sent Commit for view {} seq {}", viewNumber, sequenceNumber);
     }
@@ -93,31 +93,15 @@ public class CommitSender extends MessageSender {
             return;
         };
 
-        
-
-        broadcast(signedCommitMsg, (stub, signed) -> stub.commit((MessageServiceOuterClass.CommitMessage) signed));
+        broadcast(signedCommitMsg, state.isPrimary(), (stub, signed) -> stub.commit((MessageServiceOuterClass.CommitMessage) signed));
         logger.info("Broadcasted Aggregated Commit for view {} seq {}", viewNumber, sequenceNumber);
 
         logger.info("Committed request for view {} seq {}, now executing", viewNumber, sequenceNumber);
 
         // Find the corresponding client request
         MessageServiceOuterClass.ClientRequest clientRequest = state.findClientRequest(digest);
-        if (clientRequest == null) {
-            logger.warn("Client Request not found for digest: {}", digest);
-            return;
-        }
 
         // Execute the operation (returns a future)
-        state.executeRequest(clientRequest, digest, sequenceNumber)
-            .thenAccept(reply -> {
-                // Send the reply to the client when execution completes
-                if (reply != null) {
-                    clientReplySender.sendClientReply(clientRequest, reply);
-                }
-            })
-            .exceptionally(throwable -> {
-                logger.error("Error executing request for view {} seq {}", viewNumber, sequenceNumber, throwable);
-                return null;
-            });
+        state.executeRequest(clientRequest, digest, sequenceNumber);
     }
 }

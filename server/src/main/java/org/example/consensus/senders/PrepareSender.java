@@ -58,7 +58,7 @@ public class PrepareSender extends MessageSender {
 
         
 
-        send(state.getCollectorServerId(), signedPrepareMsg, (stub, signed) -> stub.prepare((MessageServiceOuterClass.PrepareMessage) signed));
+        send(state.getCollectorServerId(), state.isPrimary(), signedPrepareMsg, (stub, signed) -> stub.prepare((MessageServiceOuterClass.PrepareMessage) signed));
         logger.info("Sent Prepare for view {} seq {}", viewNumber, sequenceNumber);
     }
 
@@ -106,7 +106,7 @@ public class PrepareSender extends MessageSender {
 
         
 
-        broadcast(signedPrepareMsg, (stub, signed) -> stub.prepare((MessageServiceOuterClass.PrepareMessage) signed));
+        broadcast(signedPrepareMsg, state.isPrimary(), (stub, signed) -> stub.prepare((MessageServiceOuterClass.PrepareMessage) signed));
         logger.info("Broadcasted Aggregated Prepare for view {} seq {}", viewNumber, sequenceNumber);
     }
 }

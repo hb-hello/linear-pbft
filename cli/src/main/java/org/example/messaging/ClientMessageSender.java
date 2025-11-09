@@ -16,6 +16,6 @@ public class ClientMessageSender extends MessageSender {
     }
 
     public void sendRequest(String targetNodeId, MessageServiceOuterClass.ClientRequest request) {
-        signAndSend(targetNodeId, request, (stub, signed) -> stub.request((MessageServiceOuterClass.ClientRequest) signed));
+        signAndSend(targetNodeId, false, request, (stub, signed) -> stub.request((MessageServiceOuterClass.ClientRequest) signed));
     }
 }

@@ -21,6 +21,7 @@ public class MessageSender {
     private static final Logger logger = LogManager.getLogger(MessageSender.class);
 
     protected final String nodeId;
+    private boolean isPrimaryServer;
     protected final StubManager stubManager;
     protected final CommunicationLogger commLogger;
     protected final MessageAuthenticator auth;
@@ -53,19 +54,25 @@ public class MessageSender {
     }
 
     // Generic method to sign and send a message using the provided gRPC method
-    protected void signAndSend(String targetNodeId, Message message, BiConsumer<MessageServiceGrpc.MessageServiceFutureStub, Message> method) {
+    protected void signAndSend(String targetNodeId, boolean isPrimary, Message message, BiConsumer<MessageServiceGrpc.MessageServiceFutureStub, Message> method) {
         ensureActive();
         Message signedMessage = auth.sign(message);
-        send(targetNodeId, signedMessage, method);
+        send(targetNodeId, isPrimary, signedMessage, method);
     }
 
     // Generic method to send an already-signed message using the provided gRPC method
-    protected void send(String targetNodeId, Message signedMessage, BiConsumer<MessageServiceGrpc.MessageServiceFutureStub, Message> method) {
+    protected void send(String targetNodeId, boolean allowTimingAttack, Message signedMessage, BiConsumer<MessageServiceGrpc.MessageServiceFutureStub, Message> method) {
 //        logger.info("Preparing to send message to node {}: {}", targetNodeId, signedMessage.getDescriptorForType().getName());
         ensureActive();
 
         // to free up calling thread during timing attack
         networkExecutor.submit(() ->{
+            // If the sender was deactivated after scheduling, abort now
+            if (!isActive()) {
+                logger.info("Aborting scheduled send from {} to {} because sender was deactivated", nodeId, targetNodeId);
+                return;
+            }
+
             // in dark attack
 //        logger.info("Checking for MaliceInjector in dark attack for target {}", targetNodeId);
             String senderId = ServerMessage.wrap(signedMessage).getSenderId().orElse("unknown");
@@ -73,9 +80,9 @@ public class MessageSender {
                 logger.info("MaliceInjector in dark attack activated - avoiding sending message to dark target {}", targetNodeId);
                 return;
             }
-//        logger.info("No dark attack for target {}", targetNodeId);
+//        logger.info("No dark attack for target {}");
 
-            MaliceInjector.injectTimingAttack(senderId);
+            if(allowTimingAttack) MaliceInjector.injectTimingAttack(senderId);
 
             logger.info("Sending pre-signed message to node {}: {}", targetNodeId, signedMessage.getDescriptorForType().getName());
             MessageServiceGrpc.MessageServiceFutureStub stub = stubManager.getFutureStub(targetNodeId);
@@ -84,30 +91,11 @@ public class MessageSender {
         });
     }
 
-    protected void signWithAggregateTSSAndSend(String targetNodeId, Message message, BiConsumer<MessageServiceGrpc.MessageServiceFutureStub, Message> method, Map<String, ByteString> partialSignatures) {
-        ensureActive();
-        Message signedMessage = auth.signWithAggregateTss(message, partialSignatures);
-        send(targetNodeId, signedMessage, method);
-    }
-
-    protected void broadcast(Message message, BiConsumer<MessageServiceGrpc.MessageServiceFutureStub, Message> method) {
+    protected void broadcast(Message message, boolean isPrimary, BiConsumer<MessageServiceGrpc.MessageServiceFutureStub, Message> method) {
         ensureActive();
         for (String targetNodeId : Config.getServerIdsExcept(nodeId)) {
-            send(targetNodeId, message, method);
+            send(targetNodeId, isPrimary, message, method);
         }
-    }
-
-    protected void signAndBroadcast(Message message, BiConsumer<MessageServiceGrpc.MessageServiceFutureStub, Message> method) {
-        ensureActive();
-        Message signedMessage = auth.signWithTSS(message);
-        logger.info("Signed broadcast message with TSS: {}", message.getClass());
-        broadcast(signedMessage, method);
-    }
-
-    protected void broadcastWithAggregateTSS(Message message, BiConsumer<MessageServiceGrpc.MessageServiceFutureStub, Message> method, Map<String, ByteString> partialSignatures) {
-        ensureActive();
-        Message signedMessage = auth.signWithAggregateTss(message, partialSignatures);
-        broadcast(signedMessage, method);
     }
 
     public void shutdown() {

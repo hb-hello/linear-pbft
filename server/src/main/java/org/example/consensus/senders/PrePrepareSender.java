@@ -119,7 +119,7 @@ public class PrePrepareSender extends MessageSender {
                 request.getPrePrepareMessage().getSequenceNumber(),
                 request.getPrePrepareMessage().getViewNumber());
 
-        send(targetNodeId, request, (stub, signed) ->
+        send(targetNodeId, state.isPrimary(), request, (stub, signed) ->
                 stub.prePrepare((MessageServiceOuterClass.PrePrepareRequest) signed));
     }
 }
