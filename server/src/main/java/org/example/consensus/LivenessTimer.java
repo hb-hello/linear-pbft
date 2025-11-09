@@ -8,6 +8,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 public class LivenessTimer {
     private static final Logger logger = LogManager.getLogger(LivenessTimer.class);
@@ -26,6 +27,8 @@ public class LivenessTimer {
     private volatile boolean running = false;
     private volatile boolean complete = false;
     private volatile ScheduledFuture<?> currentTask = null;
+    // generation counter ensures we can ignore stale scheduled tasks that were not cancelled
+    private final AtomicLong generation = new AtomicLong(0L);
 
     public LivenessTimer(long timeoutMillis, Runnable timeoutCallback) {
         this.timeoutMillis = timeoutMillis;
@@ -58,21 +61,41 @@ public class LivenessTimer {
         start(withTimeoutMillis);
     }
 
-    public synchronized void start() {
+    private void scheduleTask(long delayMillis) {
+        // Cancel any existing scheduled task to avoid overlap
+        if (currentTask != null && !currentTask.isDone()) {
+            boolean cancelled = currentTask.cancel(false);
+            logger.debug("Cancelling previous liveness task before scheduling new one: {}", cancelled);
+            currentTask = null;
+        }
+
         startTime = System.currentTimeMillis();
-        logger.info("Starting liveness timer with timeout of {} ms", timeoutMillis);
         running = true;
+
+        // bump generation to invalidate any older scheduled runnables
+        final long gen = generation.incrementAndGet();
 
         currentTask = scheduler.schedule(() -> {
             try {
-                logger.warn("Liveness timer expired after {} ms", timeoutMillis);
+                // If generation changed since scheduling, this is a stale task; ignore it.
+                if (gen != generation.get()) {
+                    logger.debug("Ignoring stale liveness task (gen {} != current {})", gen, generation.get());
+                    return;
+                }
+                logger.warn("Liveness timer expired after {} ms", delayMillis);
                 complete = true;
                 running = false;
                 timeoutCallback.run();
             } catch (Exception e) {
                 logger.error("Error executing timeout callback", e);
             }
-        }, timeoutMillis, TimeUnit.MILLISECONDS);
+        }, delayMillis, TimeUnit.MILLISECONDS);
+    }
+
+    public synchronized void start() {
+        complete = false; // reset complete so the timer can be reused
+        logger.info("Starting liveness timer with timeout of {} ms", timeoutMillis);
+        scheduleTask(timeoutMillis);
     }
 
     public synchronized void start(long withTimeoutMillis) {
@@ -86,8 +109,11 @@ public class LivenessTimer {
     }
 
     public synchronized void addToTimeoutMillis(long additionalMillis) {
-        this.timeoutMillis += additionalMillis;
-        logger.info("Liveness timer timeout increased by {} ms to {} ms", additionalMillis, timeoutMillis);
+        if (!running) {
+            this.timeoutMillis += additionalMillis;
+            logger.info("Liveness timer timeout increased by {} ms to {} ms (for next run)", additionalMillis, timeoutMillis);
+            return;
+        }
     }
 
     public synchronized long getTimeoutMillis() {
@@ -119,6 +145,8 @@ public class LivenessTimer {
             logger.debug("Cancelled current task: {}", cancelled);
             currentTask = null;
         }
+        // bump generation so any task that still runs is ignored
+        generation.incrementAndGet();
     }
 
     public synchronized void restart() {
@@ -130,6 +158,7 @@ public class LivenessTimer {
 
     public void shutdown() {
         timeoutMillis = Config.getServerTimeoutMillis();
+        generation.set(0L);
         scheduler.shutdown();
         try {
             if (!scheduler.awaitTermination(100, TimeUnit.MILLISECONDS)) {

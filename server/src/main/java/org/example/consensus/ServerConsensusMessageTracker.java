@@ -3,6 +3,7 @@ package org.example.consensus;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.Message;
 import org.example.messaging.ServerMessage;
+import org.example.messaging.MessageUtil;
 
 import java.time.Duration;
 import java.util.Set;
@@ -34,14 +35,19 @@ public class ServerConsensusMessageTracker extends ConsensusMessageTracker<Strin
      */
     public ServerConsensusMessageTracker() {
         super(
-                // Extract request ID using ServerMessage.getMessageIndex()
-                msg -> ServerMessage.wrap(msg).getMessageIndex(),
+                // Dynamic request ID extractor: for StateMessage group by digest; otherwise use generic message index
+                msg -> {
+                    ServerMessage sm = ServerMessage.wrap(msg);
+                    if (sm.getMessageType().equals("StateMessage")) {
+                        ByteString d = sm.getDigest().orElse(ByteString.EMPTY);
+                        return "StateMessage:" + MessageUtil.digestToString(d.toByteArray());
+                    }
+                    return sm.getMessageIndex();
+                },
                 // Extract responder ID using signer_id field
                 msg -> ServerMessage.wrap(msg).getSenderId().orElse("unknown"),
-                // Extract value using digest as hex string for proper equality
-                msg -> {
-                    return ServerMessage.wrap(msg).getDigest().orElse(ByteString.EMPTY);
-                }
+                // Value extractor: use digest so only identical digests count toward quorum inside a bucket
+                msg -> ServerMessage.wrap(msg).getDigest().orElse(ByteString.EMPTY)
         );
     }
 
@@ -167,4 +173,3 @@ public class ServerConsensusMessageTracker extends ConsensusMessageTracker<Strin
         return serverConsensusMsg != null ? serverConsensusMsg.getMessageIndicesWithSender().size() : 0;
     }
 }
-

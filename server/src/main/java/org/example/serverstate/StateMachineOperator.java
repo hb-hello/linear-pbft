@@ -312,6 +312,11 @@ public class StateMachineOperator {
     }
 
     public boolean applySnapshot(Object snapshot, long seqNum) {
+        if (lastExecutedSeqNum >= seqNum) {
+            logger.info("Snapshot at seqNum {} is not newer than last executed seqNum {}, skipping apply", seqNum, lastExecutedSeqNum);
+            return false;
+        }
+
         lastExecutedSeqNum = seqNum;
         // remove all from pending operations with key less than or equal to seqNum
 

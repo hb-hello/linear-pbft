@@ -49,7 +49,8 @@ public class ServerNode extends Node {
         super(serverId);
         this.receiver = new ServerMessageReceiver(this, commLogger, auth);
 
-        this.livenessTimer = new LivenessTimer(Config.getServerTimeoutMillis(), this::onLivenessTimeout);
+        // Ensure the timeout callback runs on the message-processing executor to avoid rescheduling races
+        this.livenessTimer = new LivenessTimer(Config.getServerTimeoutMillis(), () -> executorManager.submitMessageProcessing(this::onLivenessTimeout));
 
         ExecutorService networkExecutor = executorManager.getNetworkExecutor();
 
@@ -102,14 +103,20 @@ public class ServerNode extends Node {
 
     public void onLivenessTimeout() {
         logger.warn("Liveness timeout occurred in view {}, attempting view change", state.getViewNumber());
+        long currentView = state.getViewNumber();
+        long targetView = state.tryInitiateNextViewChange();
+        if (targetView > 0) {
+            executorManager.submitMessageProcessing(() -> viewChangeSender.broadcastViewChange(state, currentView, targetView));
+        } else {
+            logger.info("No next view-change initiated by timer (already initiated), skipping broadcast");
+        }
 
         if (state.getLastExecutedView() < state.getViewNumber()) {
             logger.info("Extending liveness timeout for view {} as last executed view is {}", state.getViewNumber() + 1, state.getLastExecutedView());
+            // Extension applies to the next time the timer is started; do not start it here.
             livenessTimer.addToTimeoutMillis(Config.getServerTimeoutMillis());
         } else livenessTimer.setTimeoutMillis(Config.getServerTimeoutMillis());
 
-        state.setViewChangeInProgress(true);
-        executorManager.submitMessageProcessing(() -> viewChangeSender.broadcastViewChange(state));
     }
 
     public void reset() {

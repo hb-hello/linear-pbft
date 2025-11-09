@@ -39,6 +39,9 @@ public final class ServerState {
     private boolean viewChangeInProgress;
     private long newViewBroadcastView = -1L;
     private boolean newViewBroadcastStarted = false;
+    // Track the highest view number for which a view-change was initiated/broadcast.
+    // This prevents multiple triggers (timer/quorum) from initiating the same view change twice.
+    private long lastViewChangeInitiatedView = 0L;
     private long seqNum;
     private final long checkPointInterval = Config.getCheckpointInterval();
     private long latestStableCheckpointSeqNum = 0L;
@@ -341,8 +344,8 @@ public final class ServerState {
         return runSync(() -> viewChangeInProgress);
     }
 
-    public boolean setViewChangeInProgress(boolean viewChangeInProgress) {
-        return runSync(() -> {
+    public void setViewChangeInProgress(boolean viewChangeInProgress) {
+        runSync(() -> {
             if (this.viewChangeInProgress == viewChangeInProgress) {
                 logger.info("View change in progress already set to {}, no change", viewChangeInProgress);
                 return false;
@@ -351,6 +354,41 @@ public final class ServerState {
             this.viewChangeInProgress = viewChangeInProgress;
             logger.info("Removing view change minimum quorum messages from consensus tracker");
             serverMessageTracker.removeFromConsensusTrackerByIndex(ServerMessage.VIEW_CHANGE);
+            return true;
+        });
+    }
+
+    /**
+     * Attempt to initiate a view change for targetView. If a view change for the same or higher
+     * view has already been initiated, this returns false. Otherwise it marks view-change in
+     * progress, records the initiated view, stops the liveness timer and returns true.
+     *
+     * This ensures that both the timer callback and quorum-driven path don't both broadcast
+     * a ViewChange for the same view number.
+     *
+     * Note: callers should pass the target new view number they intend to request.
+     */
+    public boolean tryInitiateViewChange(long targetView) {
+        return runSync(() -> {
+            if (lastViewChangeInitiatedView >= targetView) {
+                logger.info("View change for view {} has already been initiated (last initiated: {}), skipping",
+                        targetView, lastViewChangeInitiatedView);
+                return false;
+            }
+            // record the initiated view and set flag
+            lastViewChangeInitiatedView = targetView;
+            if (!viewChangeInProgress) {
+                logger.info("Marking view change in progress for view {}", targetView);
+            } else {
+                logger.info("View change already flagged in progress; recording initiated view {}", targetView);
+            }
+            viewChangeInProgress = true;
+            logger.info("Removing view change minimum quorum messages from consensus tracker");
+            serverMessageTracker.removeFromConsensusTrackerByIndex(ServerMessage.VIEW_CHANGE);
+            if (livenessTimer != null) {
+                logger.info("Stopping liveness timer due to view change initiation for view {}", targetView);
+                livenessTimer.stop();
+            }
             return true;
         });
     }
@@ -920,6 +958,41 @@ public final class ServerState {
         return prePrepareBuffer;
     }
 
+    /**
+     * Attempt to initiate the next consecutive view change (target = max(currentView, lastInitiated) + 1).
+     * Returns the target view number when initiation occurred, or -1 if a view-change for that view or higher
+     * has already been initiated.
+     */
+    public long tryInitiateNextViewChange() {
+        return runSync(() -> {
+            long currentView = this.viewNumber;
+            long targetView = Math.max(currentView, lastViewChangeInitiatedView) + 1;
+            if (lastViewChangeInitiatedView >= targetView) {
+                logger.info("Next view change target {} already initiated (last initiated: {}), skipping", targetView, lastViewChangeInitiatedView);
+                return -1L;
+            }
+
+            // record the initiated view
+            lastViewChangeInitiatedView = targetView;
+            if (!viewChangeInProgress) {
+                logger.info("Marking view change in progress for view {}", targetView);
+                viewChangeInProgress = true;
+            } else {
+                logger.info("View change already flagged in progress; recording initiated view {}", targetView);
+            }
+
+            logger.info("Removing view change minimum quorum messages from consensus tracker");
+            serverMessageTracker.removeFromConsensusTrackerByIndex(ServerMessage.VIEW_CHANGE);
+
+            if (livenessTimer != null) {
+                logger.info("Not starting liveness timer here after initiating view {} - timer will be started by ViewChangeHandler when appropriate", targetView);
+                livenessTimer.stop();
+            }
+
+            return targetView;
+        });
+    }
+
     // Async variants for composition where needed
 
     public CompletableFuture<Boolean> setViewAndPrimaryAsync(long newView) {
@@ -946,6 +1019,7 @@ public final class ServerState {
             isFaulty = false;
             seqNum = 0L;
             viewChangeInProgress = false;
+            lastViewChangeInitiatedView = 0L;
             stateMachineOperator.reset();
             operationLog.clear();
             stableCheckpoints.clear();

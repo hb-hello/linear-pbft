@@ -130,20 +130,20 @@ public class ViewChangeHandler {
                 logger.info("ViewChangeMessage for view {} has reached minimum quorum for requesting view change, setting view change in progress to true and broadcasting ViewChange message",
                         viewNumber);
 
-                if (!state.setViewChangeInProgress(true)) {
-                    logger.info("View change already in progress for view {}, not updating view or primary", viewNumber);
+                long currentView = state.getViewNumber();
+                boolean started = state.tryInitiateViewChange(viewNumber);
+                if (started) {
+                    // set view/primary and broadcast for the target view
+                    state.setViewAndPrimary(viewNumber);
+                    viewChangeSender.broadcastViewChange(state, currentView, viewNumber);
+                    List<MessageServiceOuterClass.ClientRequest> pendingClientRequests = state.findClientRequestsNotPrePrepared();
+                    if (!pendingClientRequests.isEmpty()) viewChangeTimer.start();
+                    return;
+                } else {
+                    logger.info("View change for view {} was already initiated, skipping duplicate broadcast", viewNumber);
                     return;
                 }
-                state.setViewAndPrimary(viewNumber);
-                // stopping timer in case it was running from a previous view change
-                viewChangeTimer.stop();
-
-                viewChangeSender.broadcastViewChange(state, state.getViewNumber(), viewChangeMessage.getViewNumber());
-                List<MessageServiceOuterClass.ClientRequest> pendingClientRequests = state.findClientRequestsNotPrePrepared();
-                if (!pendingClientRequests.isEmpty()) viewChangeTimer.start();
-                return;
             }
-
             logger.info("Minimum quorum for view change not yet reached for view {} or view change already in progress", viewNumber);
             return;
         }
@@ -156,7 +156,7 @@ public class ViewChangeHandler {
 
         logger.info("ViewChangeMessage for view {} has reached full quorum, starting view change timer",
                 viewNumber);
-        viewChangeTimer.startIfNotRunning();
+        viewChangeTimer.restart();
 
         if (!state.isViewChangeInProgress()) {
             logger.info("View change is not in progress for view {}, no need to broadcast NewView message", viewNumber);

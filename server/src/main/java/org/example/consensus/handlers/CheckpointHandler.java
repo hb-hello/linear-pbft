@@ -84,7 +84,7 @@ public class CheckpointHandler {
             checkpointSender.broadcastStateRequest(state.getServerId());
             MessageServiceOuterClass.StateMessage stateMessageReceived = (MessageServiceOuterClass.StateMessage) state.appendAndAwaitConsensus(stateMessage, Duration.ofMillis(Config.getServerTimeoutMillis()), 2);
             logger.info("Received state for checkpoint view {} seq {}, applying snapshot to state machine", viewNumber, sequenceNumber);
-            if (!state.applySnapshotToStateMachine(stateMessageReceived, sequenceNumber)) {
+            if (!state.applySnapshotToStateMachine(stateMessageReceived.getStateSnapshotMap(), sequenceNumber)) {
                 logger.error("Failed to apply snapshot for checkpoint view {} seq {}", viewNumber, sequenceNumber);
                 throw new RuntimeException("Failed to apply snapshot for checkpoint");
             }
