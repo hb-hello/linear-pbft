@@ -100,6 +100,13 @@ public final class SenderDispatcher implements AutoCloseable {
 
         // Reset client state (do not shut them down)
         clients.values().forEach(ClientNode::reset);
+        // Replace per-client duration trackers with fresh instances to avoid races
+        clients.values().forEach(c -> {
+            try {
+                c.replaceDurationTracker(new RequestDurationTracker());
+            } catch (Exception ignored) {
+            }
+        });
 
         // Reset counters for the new transaction set
         submitted.set(0);
@@ -144,4 +151,91 @@ public final class SenderDispatcher implements AutoCloseable {
     public void resumeAll() {
         clients.values().forEach(ClientNode::resume);
     }
+
+    /**
+     * Best-effort warmup: send a fixed read-only request from each client to warm gRPC channels.
+     * Returns true if at least one client reached quorum for its warmup request.
+     */
+    public boolean warmUpAllClients() {
+        boolean anySuccess = false;
+        for (ClientNode client : clients.values()) {
+            try {
+                if (client.warmUpGrpcConnections()) anySuccess = true;
+            } catch (Exception ignored) {
+                // swallow - warmup is best-effort
+            }
+        }
+        return anySuccess;
+    }
+
+    /**
+     * Summary stats for durations in milliseconds.
+     */
+    public static record DurationSummary(double avgMillis, long minMillis, long maxMillis, long count) {}
+
+    /**
+     * Aggregated durations for read-only and read-write requests.
+     */
+    public static record AggregatedDurations(DurationSummary readOnly, DurationSummary readWrite) {}
+
+    /**
+     * Aggregate duration statistics across all clients. Returns averages, mins, maxes and counts
+     * separately for read-only and read-write requests. This method is best-effort and reads
+     * current per-client stats without locking across clients.
+     */
+    public AggregatedDurations aggregateDurationStats() {
+        long totalCountRO = 0L, totalDurationRO = 0L;
+        long minRO = Long.MAX_VALUE, maxRO = Long.MIN_VALUE;
+
+        long totalCountRW = 0L, totalDurationRW = 0L;
+        long minRW = Long.MAX_VALUE, maxRW = Long.MIN_VALUE;
+
+        for (ClientNode client : clients.values()) {
+            RequestDurationTracker t = client.getDurationTracker();
+
+            long cRO = t.getCount(true);
+            long sumRO = t.getTotalDurationMillis(true);
+            long minClientRO = t.getMinMillis(true);
+            long maxClientRO = t.getMaxMillis(true);
+            if (cRO > 0) {
+                totalCountRO += cRO;
+                totalDurationRO += sumRO;
+                if (minClientRO < minRO) minRO = minClientRO;
+                if (maxClientRO > maxRO) maxRO = maxClientRO;
+            }
+
+            long cRW = t.getCount(false);
+            long sumRW = t.getTotalDurationMillis(false);
+            long minClientRW = t.getMinMillis(false);
+            long maxClientRW = t.getMaxMillis(false);
+            if (cRW > 0) {
+                totalCountRW += cRW;
+                totalDurationRW += sumRW;
+                if (minClientRW < minRW) minRW = minClientRW;
+                if (maxClientRW > maxRW) maxRW = maxClientRW;
+            }
+        }
+
+        double avgRO = totalCountRO == 0 ? 0.0 : ((double) totalDurationRO) / totalCountRO;
+        double avgRW = totalCountRW == 0 ? 0.0 : ((double) totalDurationRW) / totalCountRW;
+        DurationSummary ro = new DurationSummary(avgRO, totalCountRO == 0 ? 0 : minRO, totalCountRO == 0 ? 0 : maxRO, totalCountRO);
+        DurationSummary rw = new DurationSummary(avgRW, totalCountRW == 0 ? 0 : minRW, totalCountRW == 0 ? 0 : maxRW, totalCountRW);
+
+        return new AggregatedDurations(ro, rw);
+    }
+
+    /**
+     * Reset only the duration trackers on each client. This is a lightweight reset
+     * that does not advance generation or cancel pending tasks; it only clears
+     * collected duration metrics so per-set metrics can start fresh.
+     */
+    public void resetDurationTrackers() {
+        for (ClientNode client : clients.values()) {
+            try {
+                client.replaceDurationTracker(new RequestDurationTracker());
+            } catch (Exception ignored) {
+            }
+        }
+    }
 }
+

@@ -27,6 +27,10 @@ public class ClientNode extends Node {
     private final ClientMessageSender sender;
     private final ClientMessageReceiver receiver;
     private final ConsensusMessageTracker<String, MessageServiceOuterClass.OperationResult> messageTracker;
+    // Track request durations separately for read-only vs non-read-only requests.
+    // Use a replaceable tracker so we can atomically swap in a fresh tracker to avoid
+    // races where in-flight threads continue to add to an old tracker after reset.
+    private volatile RequestDurationTracker durationTracker = new RequestDurationTracker();
 
     // Pause support
     private final ReentrantLock pauseLock = new ReentrantLock();
@@ -280,6 +284,10 @@ public class ClientNode extends Node {
         long currentTime = System.currentTimeMillis();
         long timeTaken = currentTime - requestTimestamp;
 
+        // Record the duration into the tracker. We infer read-only by BALANCE result case.
+        boolean isReadOnly = result.getOpCase() == MessageServiceOuterClass.OperationResult.OpCase.BALANCE;
+        durationTracker.addDuration(isReadOnly, timeTaken);
+
         // Handle the OperationResult oneof
         switch (result.getOpCase()) {
             case RESULT:
@@ -300,6 +308,23 @@ public class ClientNode extends Node {
                 requestIdFor(reply.getClientId(), reply.getTimestamp()),
                 resultStr, reply.getServerId(), timeTaken);
         updatePrimary(reply.getViewNumber());
+    }
+
+    /**
+     * Expose the duration tracker for metrics or testing.
+     */
+    public RequestDurationTracker getDurationTracker() {
+        return durationTracker;
+    }
+
+    /**
+     * Replace the current duration tracker with a fresh one. This is safer than
+     * calling reset() on the existing tracker because it avoids races where
+     * concurrent recorders still hold a reference to the old tracker.
+     */
+    public void replaceDurationTracker(RequestDurationTracker newTracker) {
+        if (newTracker == null) return;
+        this.durationTracker = newTracker;
     }
 
     public void onClientReply(MessageServiceOuterClass.ClientReply reply) {
@@ -335,6 +360,8 @@ public class ClientNode extends Node {
         runGeneration.incrementAndGet();
         // Cancel and clear any waiting consensus buckets
         this.messageTracker.clear();
+        // Replace duration tracker with a fresh instance for the new run to avoid races
+        this.durationTracker = new RequestDurationTracker();
         updatePrimary(1L); // Initial view
 
         // Allow a short grace period for already-scheduled network tasks to run and observe the inactive flag
@@ -383,4 +410,33 @@ public class ClientNode extends Node {
     public boolean isPaused() {
         return paused;
     }
+
+    /**
+     * Sends a small fixed read-only request to all servers and waits for a quorum reply.
+     * This is intended to warm up gRPC connections and authenticate channels before
+     * starting real workloads. It returns true if a quorum was reached before timeout,
+     * false otherwise (timeout, interruption, or cancellation).
+     */
+    public boolean warmUpGrpcConnections() {
+        // Use a fixed account id for the read-only balance request
+        StateMachineOperation op = new BalanceRequestOp(nodeId);
+
+        MessageServiceOuterClass.ClientRequest clientRequest = generateClientRequest(op, this.nodeId);
+
+        MessageServiceOuterClass.ClientRequest request = clientRequest.toBuilder().setIsReadOnly(false).build();
+        String requestId = requestIdFor(request.getClientId(), request.getTimestamp());
+        logger.info("Warming up gRPC connections by sending read-only request {}", requestId);
+
+        final long opGen = runGeneration.get();
+
+        boolean success = broadcastOrSendClientRequestWithTimeout(request, opGen);
+
+        if (success) {
+            logger.info("Warmup request {} completed successfully", requestId);
+        } else {
+            logger.warn("Warmup request {} did not complete (timeout or failure)", requestId);
+        }
+        return success;
+    }
+
 }

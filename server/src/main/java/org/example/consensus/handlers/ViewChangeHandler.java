@@ -137,7 +137,7 @@ public class ViewChangeHandler {
                     state.setViewAndPrimary(viewNumber);
                     viewChangeSender.broadcastViewChange(state, currentView, viewNumber);
                     List<MessageServiceOuterClass.ClientRequest> pendingClientRequests = state.findClientRequestsNotPrePrepared();
-                    if (!pendingClientRequests.isEmpty()) viewChangeTimer.start();
+//                    if (!pendingClientRequests.isEmpty()) viewChangeTimer.start();
                     return;
                 } else {
                     logger.info("View change for view {} was already initiated, skipping duplicate broadcast", viewNumber);

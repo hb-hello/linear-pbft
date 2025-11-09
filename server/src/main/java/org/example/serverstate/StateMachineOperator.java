@@ -288,7 +288,7 @@ public class StateMachineOperator {
             return;
         }
 
-        boolean hasPending = areOperationsPending();
+        boolean hasPending = areOperationsPending() || !state.findClientRequestsNotCommitted().isEmpty();
         logger.info("Pending operations present? : {}", hasPending);
         if (hasPending) {
             logger.info("Restarting liveness timer - operations still pending");

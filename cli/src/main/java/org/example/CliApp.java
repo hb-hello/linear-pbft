@@ -20,6 +20,33 @@ public final class CliApp {
 
         System.out.println("Loaded " + sets.size() + " transaction sets.");
         try (SenderDispatcher dispatcher = new SenderDispatcher()) {
+            // Ensure servers are reset and activated before warming up client gRPC connections.
+            try {
+                Thread.sleep(500); // brief pause to ensure any prior operations have settled
+                for (String serverId : Config.getServerIds()) {
+                    try {
+                        ServerManager.setServerNodeActiveFlag(serverId, true);
+                    } catch (Exception e) {
+                        System.out.println("Warning: failed to activate server " + serverId + " before warmup: " + e.getMessage());
+                    }
+                }
+                System.out.println("Resetting all servers before client warmup...");
+                ServerManager.resetAllServers();
+                // Activate all known servers so clients can warm connections to all of them
+                System.out.println("Server reset/activation complete.");
+            } catch (Exception e) {
+                System.out.println("Warning: failed to reset/activate servers before warmup: " + e.getMessage());
+            }
+
+            // Warm up gRPC connections once for all clients (A through J) before running any sets.
+            try {
+                boolean warmed = dispatcher.warmUpAllClients();
+                if (warmed) System.out.println("Client warmup succeeded (at least one client reached quorum).");
+                else System.out.println("Client warmup did not reach quorum for any client (continuing anyway).");
+            } catch (Exception e) {
+                System.out.println("Client warmup encountered an error (continuing anyway): " + e.getMessage());
+            }
+
             int next = 0;
             Scanner sc = new Scanner(System.in);
 
@@ -142,6 +169,21 @@ public final class CliApp {
                 SenderDispatcher.Status s = dispatcher.snapshotStatus();
                 System.out.printf("Progress: submitted=%d completed=%d outstanding=%d%n",
                         s.submitted(), s.completed(), s.outstanding());
+
+                // Print aggregated duration stats across all clients (avg/min/max in ms)
+                try {
+                    SenderDispatcher.AggregatedDurations agg = dispatcher.aggregateDurationStats();
+                    SenderDispatcher.DurationSummary ro = agg.readOnly();
+                    SenderDispatcher.DurationSummary rw = agg.readWrite();
+                    System.out.printf("Aggregated request duration statistics (with server timeout being %dms and client timeout being %dms):%n",
+                            Config.getServerTimeoutMillis(), Config.getClientTimeoutMillis());
+                    System.out.printf("Durations (ms) READ-ONLY: avg=%.2f min=%d max=%d count=%d%n",
+                            ro.avgMillis(), ro.minMillis(), ro.maxMillis(), ro.count());
+                    System.out.printf("Durations (ms) READ-WRITE: avg=%.2f min=%d max=%d count=%d%n",
+                            rw.avgMillis(), rw.minMillis(), rw.maxMillis(), rw.count());
+                } catch (Exception e) {
+                    System.out.println("Unable to aggregate durations: " + e.getMessage());
+                }
             }
         }
     }
@@ -167,6 +209,9 @@ public final class CliApp {
         for (MessageServiceOuterClass.Malice malice : maliceMessages) {
             ServerManager.setMalice(malice);
         }
+
+        // Clear per-client duration stats so metrics reported for this set start from zero
+        dispatcher.resetDurationTrackers();
 
         // Submit events exactly in file order
         for (StateMachineOperation ev : set.transactionEvents()) {

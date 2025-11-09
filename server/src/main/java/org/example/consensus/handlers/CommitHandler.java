@@ -89,16 +89,6 @@ public class CommitHandler {
         MessageServiceOuterClass.ClientRequest clientRequest = state.findClientRequest(digest);
 
         // Execute the operation (returns a future)
-        state.executeRequest(clientRequest, digest, sequenceNumber)
-            .thenAccept(reply -> {
-                // Send the reply to the client when execution completes
-                if (reply != null) {
-                    clientReplySender.sendClientReply(clientRequest, reply);
-                }
-            })
-            .exceptionally(throwable -> {
-                logger.error("Error executing request for view {} seq {}", viewNumber, sequenceNumber, throwable);
-                return null;
-            });
+        state.executeRequest(clientRequest, digest, sequenceNumber);
     }
 }

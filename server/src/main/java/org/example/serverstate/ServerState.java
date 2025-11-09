@@ -883,6 +883,20 @@ public final class ServerState {
         });
     }
 
+    public List<MessageServiceOuterClass.ClientRequest> findClientRequestsNotCommitted() {
+        return runSync(() -> {
+            List<MessageServiceOuterClass.ClientRequest> pendingRequests = new ArrayList<>();
+            for (long sequenceNumber : operationLog.seqNumsSeen()) {
+                OperationLogEntry entry = operationLog.getOperation(sequenceNumber);
+                if (entry.getRequest() != null) {
+                    if (findAggregatedCommit(viewNumber, sequenceNumber) != null) continue;
+                    pendingRequests.add(entry.getRequest());
+                }
+            }
+            return pendingRequests;
+        });
+    }
+
     public boolean hasCommit(long viewNumber, long sequenceNumber) {
         return runSync(() -> serverMessageTracker.hasMessage(ServerMessage.COMMIT, viewNumber, sequenceNumber));
     }
@@ -985,7 +999,7 @@ public final class ServerState {
             serverMessageTracker.removeFromConsensusTrackerByIndex(ServerMessage.VIEW_CHANGE);
 
             if (livenessTimer != null) {
-                logger.info("Not starting liveness timer here after initiating view {} - timer will be started by ViewChangeHandler when appropriate", targetView);
+                logger.info("Stopping timer after broadcasting view change for view {}", targetView);
                 livenessTimer.stop();
             }
 

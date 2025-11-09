@@ -156,6 +156,13 @@ public class LivenessTimer {
         start();
     }
 
+    public void reset() {
+        stop();
+        complete = false;
+        generation.set(0L);
+        timeoutMillis = Config.getServerTimeoutMillis();
+    }
+
     public void shutdown() {
         timeoutMillis = Config.getServerTimeoutMillis();
         generation.set(0L);

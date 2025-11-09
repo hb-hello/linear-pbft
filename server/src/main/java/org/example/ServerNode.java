@@ -122,7 +122,7 @@ public class ServerNode extends Node {
     public void reset() {
         logger.info("Resetting server node {}", nodeId);
         state.reset();
-        livenessTimer.stop();
+        livenessTimer.reset();
         MaliceInjector.init(null);
         commLogger.reset();
     }
