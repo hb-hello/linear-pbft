@@ -140,54 +140,52 @@ public class CommunicationLogger {
             // PrePrepare
             if (msg instanceof MessageServiceOuterClass.PrePrepareMessage) {
                 MessageServiceOuterClass.PrePrepareMessage m = (MessageServiceOuterClass.PrePrepareMessage) msg;
-                return String.format("MESSAGE: <PRE-PREPARE, %d, %d> sent to %s %s",
+                return String.format("MESSAGE: <PRE-PREPARE, %d, %d> sent to %s",
                         m.getViewNumber(),
                         m.getSequenceNumber(),
-                        targetNodeId,
-                        m.getSignerId());
+                        targetNodeId);
             }
             // Prepare
             if (msg instanceof MessageServiceOuterClass.PrepareMessage) {
                 MessageServiceOuterClass.PrepareMessage m = (MessageServiceOuterClass.PrepareMessage) msg;
-                return String.format("MESSAGE: <PREPARE, <%d, %d>> sent to %s %s",
+                return String.format("MESSAGE: <PREPARE, <%d, %d>> sent to %s",
                         m.getViewNumber(),
                         m.getSequenceNumber(),
-                        targetNodeId,
-                        m.getSignerId());
+                        targetNodeId);
             }
             // Commit
             if (msg instanceof MessageServiceOuterClass.CommitMessage) {
                 MessageServiceOuterClass.CommitMessage m = (MessageServiceOuterClass.CommitMessage) msg;
-                return String.format("MESSAGE: <COMMIT, %d, %d> sent to %s %s",
+                return String.format("MESSAGE: <COMMIT, %d, %d> sent to %s",
                         m.getViewNumber(),
                         m.getSequenceNumber(),
-                        targetNodeId,
-                        m.getSignerId());
+                        targetNodeId);
             }
             // Checkpoint
             if (msg instanceof MessageServiceOuterClass.CheckpointMessage) {
                 MessageServiceOuterClass.CheckpointMessage m = (MessageServiceOuterClass.CheckpointMessage) msg;
-                return String.format("MESSAGE: <CHECKPOINT, %d> sent to %s %s",
+                return String.format("MESSAGE: <CHECKPOINT, %d> sent to %s",
                         m.getSequenceNumber(),
-                        targetNodeId,
-                        m.getSignerId());
+                        targetNodeId);
             }
             // ViewChange
             if (msg instanceof MessageServiceOuterClass.ViewChangeMessage) {
                 MessageServiceOuterClass.ViewChangeMessage m = (MessageServiceOuterClass.ViewChangeMessage) msg;
-                return String.format("MESSAGE: <VIEW CHANGE, %d, %d, C, P> sent to %s %s",
+                return String.format("MESSAGE: <VIEW CHANGE, %d, %d, C(%d), P(%d)> sent to %s",
                         m.getViewNumber(),
                         m.getLastStableSequenceNumber(),
-                        targetNodeId,
-                        m.getSignerId());
+                        m.getCheckpointMessagesCount(),
+                        m.getPreparedCertificatesCount(),
+                        targetNodeId);
             }
             // NewView
             if (msg instanceof MessageServiceOuterClass.NewViewMessage) {
                 MessageServiceOuterClass.NewViewMessage m = (MessageServiceOuterClass.NewViewMessage) msg;
-                return String.format("MESSAGE: <NEW VIEW, %d> sent to %s %s",
+                return String.format("MESSAGE: <NEW VIEW, %d, V(%d), P(%d)> sent to %s",
                         m.getViewNumber(),
-                        targetNodeId,
-                        m.getSignerId());
+                        m.getViewChangeMessagesCount(),
+                        m.getPrePrepareMessagesCount(),
+                        targetNodeId);
             }
             // StateMessage
             if (msg instanceof MessageServiceOuterClass.StateMessage) {
@@ -227,9 +225,9 @@ public class CommunicationLogger {
         }
 
         // Fallback generic log
-        String action = sending ? "sent" : "received";
-        String descriptor = msg.getDescriptorForType() != null ? msg.getDescriptorForType().getName() : msg.getClass().getSimpleName();
-        add(String.format("MESSAGE: <%s> %s", descriptor, action));
+//        String action = sending ? "sent" : "received";
+//        String descriptor = msg.getDescriptorForType() != null ? msg.getDescriptorForType().getName() : msg.getClass().getSimpleName();
+//        add(String.format("MESSAGE: <%s> %s", descriptor, action));
     }
 
     // Overload that accepts a targetNodeId for sending cases. When sending is true and
